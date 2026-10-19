@@ -78,3 +78,79 @@ def test_target_weights():
                         "ic": [0.1, 0.2, 0.05, -0.1], "hit": 0.5, "sharpe": 0.0, "price": 1.0})
     w = autotrade.target_weights(sig, top_n=5, min_ic=0.0, max_weight=0.25)
     assert set(w) == {"A", "C"} and all(v == 0.25 for v in w.values())
+
+
+# ---------------------------------------------------------------- расширенная аналитика
+from tradelab import compliance, config, strategies  # noqa: E402
+
+
+def test_component_var_sums_to_var(R):
+    w = {c: 1 / len(R.columns) for c in R.columns}
+    var, comp = risk.parametric_var(R, w, 0.95)
+    assert comp.sum() == pytest.approx(var) and var > 0
+
+
+def test_cov_estimators_are_psd(R):
+    for cov in (risk.shrunk_cov(R), risk.ewma_cov(R)):
+        assert np.linalg.eigvalsh(cov.to_numpy()).min() > -1e-12
+
+
+def test_factor_decomposition_shares(R):
+    d = risk.factor_decomposition(R, {c: 0.25 for c in R.columns}, k=2)
+    assert d["systematic"] + d["idiosyncratic"] == pytest.approx(1.0)
+    assert d["explained"].sum() == pytest.approx(1.0)
+    assert d["systematic"] > 0.3  # в демо один общий фактор: он должен быть заметен
+
+
+def test_active_stats_identity():
+    r = pd.Series(np.random.default_rng(0).normal(0, 0.01, 500))
+    a = risk.active_stats(r, r)
+    assert a["Tracking error"] == pytest.approx(0) and a["Бета"] == pytest.approx(1.0)
+
+
+def test_drawdown_and_concentration():
+    r = pd.Series([0.1, -0.2, 0.05])
+    assert risk.drawdown_series(r).min() == pytest.approx(-0.2)
+    hhi, n_eff = risk.concentration({"A": 0.5, "B": 0.5})
+    assert hhi == pytest.approx(0.5) and n_eff == pytest.approx(2.0)
+
+
+def test_what_if_and_sector():
+    assert risk.what_if({"A": 0.5, "B": 0.5}, {"A": -0.1}) == pytest.approx(-0.05)
+    s = risk.sector_exposure({"SBER": 0.2, "VTBR": 0.2, "GAZP": 0.1}, config.sector)
+    assert s["Финансы"] == pytest.approx(0.4)
+
+
+def test_black_litterman_moves_toward_view(R):
+    prior = optimize.black_litterman(R, {}, {})
+    post = optimize.black_litterman(R, {"A": 0.5}, {"A": 0.9})
+    assert post["A"] > prior["A"]
+    weak = optimize.black_litterman(R, {"A": 0.5}, {"A": 0.05})
+    assert weak["A"] < post["A"]
+
+
+def test_mean_variance_uses_custom_mu(R):
+    mu = np.array([0.0, 0.0, 0.0, 1.0])
+    w = optimize.optimize(R, "mean_variance", max_weight=1.0, mu=mu, risk_aversion=1.0)
+    assert w[R.columns[3]] > 0.5
+
+
+def test_compliance_flags_breaches():
+    lim = compliance.Limits(max_position=0.2, max_sector=0.3, min_cash=0.1, max_var95=0.02, max_turnover=0.5)
+    b = compliance.check({"SBER": 0.25, "VTBR": 0.2, "GAZP": 0.5}, lim, var95=0.03, current={})
+    rules = {x["Правило"] for x in b}
+    assert {"Доля бумаги", "Доля сектора", "Мин. деньги", "VaR 95% (1д)", "Оборот"} <= rules
+    assert compliance.check({"SBER": 0.1}, lim, var95=0.01, current={}) == []
+
+
+@pytest.mark.parametrize("method", list(strategies.METHODS))
+def test_strategy_backtest_runs(R, method):
+    out = strategies.run(R, method, rebalance_days=40, lookback=100, top_n=2, max_weight=0.6)
+    assert len(out) == len(R) - 100 and np.isfinite(out["equity"].iloc[-1])
+    assert (out["turnover"] >= 0).all()
+
+
+def test_strategy_costs_reduce_return(R):
+    free = strategies.run(R, "momentum", 20, 100, 2, cost_bps=0)["equity"].iloc[-1]
+    paid = strategies.run(R, "momentum", 20, 100, 2, cost_bps=100)["equity"].iloc[-1]
+    assert paid < free
