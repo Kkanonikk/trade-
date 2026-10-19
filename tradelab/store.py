@@ -49,3 +49,61 @@ def summary(con):
     return pd.read_sql_query(
         "SELECT ticker, tf, COUNT(*) AS bars, MIN(ts) AS first, MAX(ts) AS last "
         "FROM candles GROUP BY ticker, tf ORDER BY ticker, tf", con)
+
+
+# ---------------------------------------------------------------- рядовые данные (мир, ставки, валюты, макро)
+SERIES_SCHEMA = """
+CREATE TABLE IF NOT EXISTS series (
+    kind TEXT NOT NULL, key TEXT NOT NULL, ts TEXT NOT NULL, value REAL,
+    PRIMARY KEY (kind, key, ts)
+)
+"""
+FACTS_SCHEMA = """
+CREATE TABLE IF NOT EXISTS facts (
+    ticker TEXT NOT NULL, concept TEXT NOT NULL, period_end TEXT NOT NULL, value REAL, form TEXT, filed TEXT,
+    PRIMARY KEY (ticker, concept, period_end)
+)
+"""
+
+
+def connect_world(path=None):
+    con = connect(path)
+    con.execute(SERIES_SCHEMA)
+    con.execute(FACTS_SCHEMA)
+    return con
+
+
+def upsert_series(con, kind, df):
+    """df: колонки ts, key, value."""
+    rows = [(kind, k, pd.Timestamp(ts).isoformat(), float(v)) for ts, k, v in
+            df[["ts", "key", "value"]].itertuples(index=False)]
+    con.executemany("INSERT OR REPLACE INTO series VALUES (?,?,?,?)", rows)
+    con.commit()
+    return len(rows)
+
+
+def load_series(con, kind):
+    """Широкая таблица: индекс ts, колонки key."""
+    df = pd.read_sql_query("SELECT ts, key, value FROM series WHERE kind=? ORDER BY ts", con, params=(kind,))
+    if df.empty:
+        return pd.DataFrame()
+    df["ts"] = pd.to_datetime(df["ts"], utc=True)
+    return df.pivot_table(index="ts", columns="key", values="value").sort_index()
+
+
+def upsert_facts(con, ticker, df):
+    """df: concept, period_end, value, form, filed."""
+    rows = [(ticker, r.concept, str(r.period_end), float(r.value), r.form, str(r.filed))
+            for r in df.itertuples(index=False)]
+    con.executemany("INSERT OR REPLACE INTO facts VALUES (?,?,?,?,?,?)", rows)
+    con.commit()
+    return len(rows)
+
+
+def load_facts(con, ticker):
+    return pd.read_sql_query("SELECT concept, period_end, value, form, filed FROM facts WHERE ticker=? "
+                             "ORDER BY period_end", con, params=(ticker,))
+
+
+def facts_tickers(con):
+    return [r[0] for r in con.execute("SELECT DISTINCT ticker FROM facts ORDER BY ticker")]

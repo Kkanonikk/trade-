@@ -1,8 +1,10 @@
 pandas>=2.0
 numpy>=1.26
 scikit-learn>=1.4
+scipy>=1.11
 requests>=2.31
 streamlit>=1.50
 plotly>=5.20
+networkx>=3.0
+tzdata
 pytest>=8.0
-scipy>=1.11

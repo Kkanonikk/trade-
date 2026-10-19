@@ -8,11 +8,9 @@ import streamlit as st
 from plotly.subplots import make_subplots
 
 from tradelab import (autotrade, backtest, compliance, config, demo, indicators, models, optimize,
-                      paper, risk, store, strategies)
+                      paper, risk, ru_data, sources, store, strategies, views, worlddata)
 from tradelab.bcs import TIMEFRAMES, BcsClient, BcsError
-
-C = dict(up="#26C281", down="#FF4D4F", accent="#FF9F1A", blue="#4DA3FF", violet="#B38CFF",
-         grid="#1E2735", text="#C9D1DC", bg="#0A0D12", panel="#131923")
+from tradelab.ui import C, pct, style
 
 st.set_page_config(page_title="Trade Lab Terminal", layout="wide", page_icon="📈")
 st.markdown(f"""
@@ -31,19 +29,6 @@ st.markdown(f"""
 .title {{font-size: 26px; font-weight: bold; letter-spacing: 2px; color: {C['accent']};}}
 .stTabs [data-baseweb="tab"] {{font-weight: bold; letter-spacing: 1px;}}
 </style>""", unsafe_allow_html=True)
-
-
-def style(fig, height=450):
-    fig.update_layout(template="plotly_dark", paper_bgcolor=C["bg"], plot_bgcolor=C["bg"],
-                      font=dict(family="monospace", color=C["text"]), height=height,
-                      margin=dict(l=10, r=10, t=30, b=10), legend=dict(orientation="h", y=1.08))
-    fig.update_xaxes(gridcolor=C["grid"], zeroline=False)
-    fig.update_yaxes(gridcolor=C["grid"], zeroline=False)
-    return fig
-
-
-def pct(x, d=1):
-    return "н/д" if x is None or not np.isfinite(x) else f"{x:.{d}%}"
 
 
 # ---------------------------------------------------------------- боковая панель
@@ -97,6 +82,17 @@ def run_signals(is_demo, timeframe, tickers_, model_name, cost, version):
     return autotrade.compute_signals(get_frames(is_demo, timeframe, tickers_, version), model_name, cost)
 
 
+@st.cache_data(show_spinner=False)
+def get_world(is_demo, version):
+    return worlddata.load(is_demo)
+
+
+def bump():
+    st.session_state.version += 1
+    st.rerun()
+
+
+world = get_world(use_demo, VERSION)
 frames = get_frames(use_demo, tf, tickers, VERSION)
 if use_demo and tf != "D":
     st.sidebar.info("В демо-режиме есть только дневные свечи.")
@@ -160,10 +156,10 @@ if len(ST):
 R_all = risk.returns_frame(frames) if len(frames) >= 2 else None
 weights, weights_fallback = (pick_weights(list(R_all.columns)) if R_all is not None else ({}, False))
 
-tabs = st.tabs(["ОБЗОР", "ГРАФИК", "РИСК", "ФАКТОРЫ", "ОПТИМИЗАТОР", "СТРАТЕГИИ", "МОДЕЛИ", "СКАНЕР",
-                "АВТОТОРГОВЛЯ", "ДАННЫЕ"])
-(tab_ov, tab_chart, tab_risk, tab_factors, tab_opt, tab_strat, tab_models, tab_scan, tab_auto,
- tab_data) = tabs
+tabs = st.tabs(["ОБЗОР", "МИР", "ГРАФИК", "РИСК", "ФАКТОРЫ", "СТРУКТУРА", "МАКРО", "ОТЧЁТНОСТЬ", "ОПТИМИЗАТОР",
+                "СТРАТЕГИИ", "МОДЕЛИ", "СКАНЕР", "АВТОТОРГОВЛЯ", "ДАННЫЕ"])
+(tab_ov, tab_world, tab_chart, tab_risk, tab_factors, tab_struct, tab_macro, tab_fund, tab_opt, tab_strat,
+ tab_models, tab_scan, tab_auto, tab_data) = tabs
 limits_ss = st.session_state.setdefault("limits", compliance.Limits())
 
 # ---------------------------------------------------------------- ОБЗОР
@@ -202,6 +198,24 @@ with tab_ov:
                     "RSI": st.column_config.ProgressColumn(format="%.0f", min_value=0, max_value=100),
                     "Тренд 60": st.column_config.LineChartColumn("Тренд 60 баров"),
                 })
+
+# ---------------------------------------------------------------- МИР, СТРУКТУРА, МАКРО, ОТЧЁТНОСТЬ
+with tab_world:
+    views.view_world(world, use_demo)
+
+with tab_struct:
+    universe = st.radio("Универсум", ["Мировые индексы", "Акции РФ"], horizontal=True)
+    if universe == "Мировые индексы":
+        views.view_structure(worlddata.returns(world["index"]) if not world["index"].empty else None,
+                             "мировые индексы")
+    else:
+        views.view_structure(R_all, "акции РФ")
+
+with tab_macro:
+    views.view_macro(world)
+
+with tab_fund:
+    views.view_fundamentals(world, None if use_demo else store.connect_world(), use_demo, bump)
 
 # ---------------------------------------------------------------- ГРАФИК
 with tab_chart:
@@ -721,6 +735,8 @@ with tab_data:
     if use_demo:
         st.info("Включён демо-режим: данные синтетические и в базу не пишутся. "
                 "Выключи его слева, чтобы работать с настоящими данными БКС.")
+    ru_source = st.radio("Источник свечей акций РФ", ru_data.SOURCES, horizontal=True,
+                         help="Авто: БКС, если задан токен, иначе MOEX ISS (бесплатно, без токена)")
     c1, c2 = st.columns(2)
     if c1.button("Проверить подключение к БКС"):
         try:
@@ -735,21 +751,41 @@ with tab_data:
             st.error(f"Сеть или формат ответа: {exc!r}")
     if c2.button("Загрузить / обновить данные", type="primary"):
         try:
-            client = BcsClient()
+            st.caption(f"Источник: {ru_data.resolve(ru_source)}")
             con = store.connect()
             progress = st.progress(0.0)
+            failed = []
             for i, ticker in enumerate(tickers):
                 last = store.last_ts(con, ticker, tf)
-                start = (last.to_pydatetime() if last is not None
-                         else datetime.now(timezone.utc) - timedelta(days=365 * years))
-                df = client.candles(ticker, start, timeframe=tf)
-                n = store.upsert(con, ticker, tf, df) if not df.empty else 0
-                st.write(f"{ticker}: {n} баров")
+                start = last.to_pydatetime() if last is not None else ru_data.default_start(years)
+                try:
+                    df = ru_data.load(ticker, start, tf, ru_source)
+                    n = store.upsert(con, ticker, tf, df) if not df.empty else 0
+                    st.write(f"{ticker}: {n} баров")
+                except Exception as exc:
+                    failed.append(f"{ticker}: {exc}")
                 progress.progress((i + 1) / len(tickers))
+            for msg in failed:
+                st.error(msg)
             st.session_state.version += 1
-        except BcsError as exc:
-            st.error(str(exc))
         except Exception as exc:
             st.error(f"Ошибка загрузки: {exc!r}")
+    st.subheader("Мировые данные")
+    st.caption("Индексы бирж мира, сырьё, валюты (ECB и ЦБ РФ), ставки центробанков (FRED), доходности, макро "
+               "(World Bank). Источники открытые и бесплатные, токены не нужны.")
+    w1, w2 = st.columns(2)
+    if w1.button("Проверить источники"):
+        res = sources.probe_all()
+        st.dataframe(pd.DataFrame(res, columns=["Источник", "OK", "Сообщение"]), hide_index=True, width="stretch")
+    if w2.button("Обновить мировые данные", type="primary", disabled=use_demo):
+        con_w = store.connect_world()
+        bar = st.progress(0.0)
+        report = worlddata.refresh(con_w, years, lambda f, label: bar.progress(f, text=label))
+        st.session_state["world_report"] = pd.DataFrame(report, columns=["Что", "OK", "Сообщение"])
+        bump()
+    if "world_report" in st.session_state:
+        rep_df = st.session_state["world_report"]
+        st.write(f"Последнее обновление: успешно {int(rep_df['OK'].sum())} из {len(rep_df)}")
+        st.dataframe(rep_df.sort_values("OK"), hide_index=True, width="stretch", height=260)
     st.subheader("Что лежит в локальной базе")
     st.dataframe(store.summary(store.connect()), hide_index=True, width="stretch")
