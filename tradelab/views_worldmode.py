@@ -1,6 +1,6 @@
 """Глобальный режим: единая рабочая среда по странам мира на открытых данных (прошлое, прогнозы, источники).
 
-Страницы: ОБЗОР, ИССЛЕДОВАТЕЛЬ, СТРАНА, ПУЗЫРЬКИ, ДЕМОГРАФИЯ, ГОЛОД, КЛИМАТ, КРИЗИСЫ, ТОРГОВЛЯ, МОРЕ, КОНФЛИКТЫ, ГОРИЗОНТ,
+Страницы: ОБЗОР, ИССЛЕДОВАТЕЛЬ, СРАВНЕНИЕ, СТРАНА, ПУЗЫРЬКИ, ДЕМОГРАФИЯ, ГОЛОД, КЛИМАТ, КРИЗИСЫ, ТОРГОВЛЯ, МОРЕ, КОНФЛИКТЫ, ГОРИЗОНТ,
 ВАЛЮТЫ, ИСТОЧНИКИ. Под каждым графиком показан источник из реестра.
 """
 import io
@@ -211,7 +211,9 @@ def page_explorer(version):
     proj = m.get("projection_from")
     if proj and y >= proj:
         st.warning(f"{y} год это прогноз ООН (средний вариант), а не наблюдение.")
+    allowed = global_filter(version, "gf_ex")
     vals = gdata.cross_section(w, k, y)
+    vals = vals[vals.index.isin(allowed)]
     c = st.columns(4)
     c[0].metric("Стран с данными", len(vals))
     c[1].metric("Медиана", fmt_val(float(vals.median()), m["unit"]) if len(vals) else "н/д")
@@ -356,6 +358,160 @@ def page_country(version):
             c[2].metric("Медианный возраст 2025 → 2050", f"{age.get(2025, np.nan):.0f} → {age.get(2050, np.nan):.0f}")
 
 
+# ================================================================ ФИЛЬТРЫ и СРАВНЕНИЕ
+GROUPS = {
+    "G7": ["USA", "JPN", "DEU", "GBR", "FRA", "ITA", "CAN"],
+    "БРИКС": ["BRA", "RUS", "IND", "CHN", "ZAF", "EGY", "ETH", "IRN", "ARE"],
+    "G20 (основные)": ["USA", "CHN", "JPN", "DEU", "IND", "GBR", "FRA", "ITA", "BRA", "CAN", "RUS", "KOR", "AUS", "MEX", "IDN", "TUR", "SAU", "ARG", "ZAF"],
+    "ЕС (крупнейшие)": ["DEU", "FRA", "ITA", "ESP", "POL", "NLD", "BEL", "SWE", "AUT", "GRC", "PRT", "CZE"],
+    "СНГ": ["RUS", "BLR", "KAZ", "UZB", "ARM", "AZE", "KGZ", "TJK", "MDA", "UKR"],
+    "Самые населённые": ["CHN", "IND", "USA", "IDN", "PAK", "NGA", "BRA", "BGD", "RUS", "MEX"],
+}
+
+
+def global_filter(version, key="gf"):
+    """Фильтр стран: регион, население, до трёх условий по значениям показателей. Возвращает множество iso3."""
+    w, avail = get_wide(version), get_avail(version)
+    allc = country_options(w)
+    with st.expander("🔎 Фильтры стран", expanded=False):
+        c1, c2 = st.columns(2)
+        regs = c1.multiselect("Регион", list(REGION_RU), format_func=REGION_RU.get, key=f"{key}_reg")
+        pop = get_pop_path(version)
+        lo_hi = c2.slider("Население 2024, млн (лог. шкала)", 0.0, 1500.0, (0.0, 1500.0), key=f"{key}_pop")
+        n_rules = st.number_input("Условий по показателям", 0, 3, 0, key=f"{key}_n")
+        rules = []
+        for i in range(int(n_rules)):
+            a, b, c = st.columns([3, 1, 2])
+            k = a.selectbox("Показатель", avail["key"].tolist(), format_func=lambda x: avail.set_index("key").loc[x, "label"], key=f"{key}_k{i}")
+            op = b.selectbox("Условие", [">", "<"], key=f"{key}_o{i}")
+            y = default_year(w, k)
+            xs = gdata.cross_section(w, k, y)
+            if len(xs):
+                thr = c.number_input(f"Порог ({y})", value=float(xs.median()), key=f"{key}_t{i}")
+                rules.append((k, op, thr, y))
+        picks = st.multiselect("Только эти страны (пусто = все)", allc, format_func=countries.short_ru, key=f"{key}_pick")
+    out = set(allc)
+    if regs:
+        out &= {i for i in allc if region_of(i) in regs}
+    if lo_hi != (0.0, 1500.0) and 2024 in pop.columns:
+        m = pop[2024] / 1e6
+        out &= set(m[(m >= lo_hi[0]) & (m <= lo_hi[1])].index)
+    for k, op, thr, y in rules:
+        xs = gdata.cross_section(w, k, y)
+        out &= set(xs[xs > thr].index if op == ">" else xs[xs < thr].index)
+    if picks:
+        out &= set(picks)
+    if len(out) != len(allc):
+        st.caption(f"Фильтр активен: выбрано {len(out)} из {len(allc)} стран.")
+    return out
+
+
+def page_compare(version):
+    w, avail = get_wide(version), get_avail(version)
+    meta = gdata.meta()
+    st.markdown("### Сравнение стран")
+    opts = country_options(w)
+    c1, c2 = st.columns([1, 3])
+    preset = c1.selectbox("Быстрый выбор группы", ["—"] + list(GROUPS), key="cmp_preset")
+    if preset != "—" and st.session_state.get("cmp_last_preset") != preset:
+        st.session_state["cmp_c"] = [i for i in GROUPS[preset] if i in opts]
+        st.session_state["cmp_last_preset"] = preset
+    if "cmp_c" not in st.session_state:
+        st.session_state["cmp_c"] = [i for i in ("RUS", "CHN", "USA", "IND", "DEU") if i in opts]
+    sel = c2.multiselect("Страны (до 12)", opts, format_func=countries.short_ru, key="cmp_c", max_selections=12)
+    if len(sel) < 2:
+        return st.info("Выбери минимум две страны.")
+    defaults = [k for k in KEY_PROFILE if k in avail["key"].values][:8]
+    keys = st.multiselect("Показатели", avail["key"].tolist(), default=defaults, key="cmp_k",
+                          format_func=lambda k: f"{meta[k]['group']} · {meta[k]['label']}")
+    if not keys:
+        return st.info("Выбери хотя бы один показатель.")
+    rows = {}
+    for k in keys:
+        cap = gdata.last_actual_year(k)
+        r = {}
+        for iso in sel:
+            s = gdata.series(w, k, iso)
+            s = s[s.index <= cap] if cap else s
+            r[iso] = (float(s.iloc[-1]), int(s.index[-1])) if len(s) else (np.nan, None)
+        rows[k] = r
+    tab = pd.DataFrame({countries.short_ru(i): [rows[k][i][0] for k in keys] for i in sel}, index=[meta[k]["label"] + (f", {meta[k]['unit']}" if meta[k]["unit"] else "") for k in keys])
+    years = pd.DataFrame({countries.short_ru(i): [rows[k][i][1] for k in keys] for i in sel}, index=tab.index)
+    st.markdown("**Последние фактические значения** (зелёное — лучшее среди выбранных, красное — худшее, где у показателя есть «лучше/хуже»)")
+
+    def shade(row):
+        k = keys[list(tab.index).index(row.name)]
+        b = meta[k]["better"]
+        if b == "none" or row.notna().sum() < 2:
+            return [""] * len(row)
+        best, worst = (row.max(), row.min()) if b == "up" else (row.min(), row.max())
+        return ["background-color: rgba(38,194,129,.28)" if v == best else "background-color: rgba(255,77,79,.28)" if v == worst else "" for v in row]
+    st.dataframe(tab.style.apply(shade, axis=1).format("{:,.2f}", na_rep="н/д"), width="stretch")
+    with st.expander("За какой год значения"):
+        st.dataframe(years, width="stretch")
+    st.download_button("Скачать таблицу (CSV)", tab.to_csv().encode("utf-8-sig"), "compare.csv", "text/csv")
+    src_box(keys)
+
+    t1, t2, t3 = st.tabs(["Динамика", "Профиль (радар)", "Две оси"])
+    with t1:
+        k = st.selectbox("Показатель", keys, format_func=lambda k: meta[k]["label"], key="cmp_dyn")
+        a, b = st.columns(2)
+        y0 = a.slider("С какого года", 1950, 2020, 1990, key="cmp_y0")
+        rebase = b.checkbox("Индекс = 100 в начале периода", key="cmp_rb")
+        fig = go.Figure()
+        proj = meta[k].get("projection_from")
+        for i, iso in enumerate(sel):
+            s = gdata.series(w, k, iso)
+            s = s[s.index >= y0]
+            if s.empty:
+                continue
+            if rebase and s.iloc[0] != 0:
+                s = s / s.iloc[0] * 100
+            col = PALETTE[i % len(PALETTE)]
+            if proj:
+                fig.add_scatter(x=s[s.index < proj].index, y=s[s.index < proj].values, name=countries.short_ru(iso), line=dict(color=col))
+                fig.add_scatter(x=s[s.index >= proj - 1].index, y=s[s.index >= proj - 1].values, line=dict(color=col, dash="dot"), showlegend=False)
+            else:
+                fig.add_scatter(x=s.index, y=s.values, name=countries.short_ru(iso), line=dict(color=col))
+        fig.update_layout(yaxis_title="Индекс" if rebase else f"{meta[k]['label']}, {meta[k]['unit']}")
+        st.plotly_chart(style(fig, 420), width="stretch")
+        src_box([k], "пунктир: прогноз ООН")
+    with t2:
+        if len(keys) < 3:
+            st.info("Для радара нужно минимум три показателя.")
+        else:
+            fig = go.Figure()
+            labels = [meta[k]["label"] for k in keys]
+            for i, iso in enumerate(sel):
+                vals = []
+                for k in keys:
+                    v, y = rows[k][iso]
+                    xs = gdata.cross_section(w, k, y) if y else pd.Series(dtype=float)
+                    p = float((xs < v).mean()) if len(xs) and np.isfinite(v) else 0.0
+                    vals.append(1 - p if meta[k]["better"] == "down" else p)
+                fig.add_trace(go.Scatterpolar(r=vals + vals[:1], theta=labels + labels[:1], name=countries.short_ru(iso),
+                                              line=dict(color=PALETTE[i % len(PALETTE)])))
+            fig.update_layout(polar=dict(radialaxis=dict(range=[0, 1], tickformat=".0%"), bgcolor=C["bg"]))
+            st.plotly_chart(style(fig, 480), width="stretch")
+            st.caption("Положение страны среди всех стран мира по показателю (процентиль); для «чем ниже, тем лучше» шкала перевёрнута.")
+    with t3:
+        a, b = st.columns(2)
+        kx = a.selectbox("Ось X", keys, index=0, format_func=lambda k: meta[k]["label"], key="cmp_x")
+        ky = b.selectbox("Ось Y", keys, index=min(1, len(keys) - 1), format_func=lambda k: meta[k]["label"], key="cmp_y")
+        yx, yy = default_year(w, kx), default_year(w, ky)
+        allx, ally = gdata.cross_section(w, kx, yx), gdata.cross_section(w, ky, yy)
+        d = pd.concat([allx.rename("x"), ally.rename("y")], axis=1).dropna()
+        fig = go.Figure(go.Scatter(x=d["x"], y=d["y"], mode="markers", marker=dict(color="#3a4558", size=5), name="Все страны", hoverinfo="skip"))
+        pts = d.loc[[i for i in sel if i in d.index]]
+        fig.add_scatter(x=pts["x"], y=pts["y"], mode="markers+text", text=[countries.short_ru(i) for i in pts.index], textposition="top center",
+                        marker=dict(color=C["accent"], size=12), name="Выбранные")
+        fig.update_layout(xaxis_title=f"{meta[kx]['label']} ({yx})", yaxis_title=f"{meta[ky]['label']} ({yy})")
+        st.plotly_chart(style(fig, 460), width="stretch")
+        if len(d) > 20:
+            st.caption(f"Корреляция по всем {len(d)} странам: Спирмен ρ = {d['x'].corr(d['y'], method='spearman'):.2f}. Корреляция не доказывает причинность.")
+        src_box([kx, ky])
+
+
 # ================================================================ ПУЗЫРЬКИ
 def page_bubbles(version):
     w, avail = get_wide(version), get_avail(version)
@@ -369,18 +525,19 @@ def page_bubbles(version):
     with c2:
         ky = indicator_picker(avail, "bb_y", "gm:life_expectancy_at_birth_data_from_ihme")
     logx = c3.checkbox("Логарифмическая ось X", value=True)
+    allowed = global_filter(version, "gf_bb")
     mx, my = gdata.meta()[kx], gdata.meta()[ky]
     capy = min(filter(None, [gdata.last_actual_year(kx), gdata.last_actual_year(ky)]), default=None)
     ys = sorted(set(w[kx].dropna().index.get_level_values("year")) & set(w[ky].dropna().index.get_level_values("year")))
     ys = [y for y in ys if y >= 1960 and (capy is None or y <= capy)]
-    if len(ys) < 5:
+    if len(ys) < 5 or not allowed:
         return st.info("У этой пары показателей мало общих лет.")
     step = max(1, len(ys) // 70)
     ys = ys[::step] + ([ys[-1]] if ys[-1] not in ys[::step] else [])
     frames, allx, ally = [], [], []
     for y in ys:
         d = pd.concat([gdata.cross_section(w, kx, y).rename("x"), gdata.cross_section(w, ky, y).rename("y")], axis=1).dropna()
-        d = d[d.index.isin(countries.table().index)]
+        d = d[d.index.isin(countries.table().index) & d.index.isin(allowed)]
         if logx:
             d = d[d["x"] > 0]
         pop = path[y].reindex(d.index) if y in path.columns else pd.Series(np.nan, index=d.index)
@@ -749,7 +906,7 @@ def page_sources(version):
 
 
 # ================================================================ точка входа
-PAGES = ["ОБЗОР", "ИССЛЕДОВАТЕЛЬ", "СТРАНА", "ПУЗЫРЬКИ", "ДЕМОГРАФИЯ", "ГОЛОД", "КЛИМАТ", "КРИЗИСЫ", "ТОРГОВЛЯ", "МОРЕ", "КОНФЛИКТЫ",
+PAGES = ["ОБЗОР", "ИССЛЕДОВАТЕЛЬ", "СРАВНЕНИЕ", "СТРАНА", "ПУЗЫРЬКИ", "ДЕМОГРАФИЯ", "ГОЛОД", "КЛИМАТ", "КРИЗИСЫ", "ТОРГОВЛЯ", "МОРЕ", "КОНФЛИКТЫ",
          "ГОРИЗОНТ", "ВАЛЮТЫ", "ИСТОЧНИКИ"]
 
 
@@ -761,6 +918,8 @@ def render(version, bump, use_demo=False):
         page_overview(version)
     elif page == "ИССЛЕДОВАТЕЛЬ":
         page_explorer(version)
+    elif page == "СРАВНЕНИЕ":
+        page_compare(version)
     elif page == "СТРАНА":
         page_country(version)
     elif page == "ПУЗЫРЬКИ":

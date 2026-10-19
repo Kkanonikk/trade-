@@ -123,3 +123,10 @@ def test_scale_color_directions():
     assert globe.scale_color(None, 0, 1, "up") is None
     assert globe.scale_color(0.0, 0, 1, "down") != globe.scale_color(1.0, 0, 1, "down")
     assert globe.scale_color(0.0, 0, 1, "up") != globe.scale_color(1.0, 0, 1, "up")
+
+
+def test_comparison_groups_are_valid_countries():
+    from tradelab import countries, views_worldmode
+    known = set(countries.table().index)
+    for name, isos in views_worldmode.GROUPS.items():
+        assert len(isos) >= 5 and set(isos) <= known, name
