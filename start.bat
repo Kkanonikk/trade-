@@ -19,6 +19,7 @@ if not exist .venv\.installed (
   echo Ставлю зависимости (нужен интернет, один раз^)...
   python -m pip install --upgrade pip >nul
   python -m pip install -r requirements.txt || goto :error
+  python -m pip install -r requirements-optional.txt || echo Необязательный пакет ripser не установился: топология H1 будет недоступна, остальное работает.
   echo ok> .venv\.installed
 )
 

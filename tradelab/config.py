@@ -31,3 +31,16 @@ _load_dotenv()
 
 def get(name, default=""):
     return os.environ.get(name, default)
+
+SECTORS = {
+    "SBER": "Финансы", "VTBR": "Финансы", "MOEX": "Финансы", "T": "Финансы",
+    "GAZP": "Нефть и газ", "LKOH": "Нефть и газ", "ROSN": "Нефть и газ", "NVTK": "Нефть и газ",
+    "TATN": "Нефть и газ", "SNGS": "Нефть и газ",
+    "GMKN": "Металлы и добыча", "PLZL": "Металлы и добыча", "CHMF": "Металлы и добыча",
+    "NLMK": "Металлы и добыча", "ALRS": "Металлы и добыча",
+    "PHOR": "Химия", "MGNT": "Ритейл", "MTSS": "Телеком", "AFLT": "Транспорт", "YDEX": "IT",
+}
+
+
+def sector(ticker):
+    return SECTORS.get(ticker, "Прочее")

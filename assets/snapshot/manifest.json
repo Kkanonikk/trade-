@@ -1,0 +1,121 @@
+{
+ "updated": "2026-10-19",
+ "files": {
+  "weo_values": {
+   "desc": "IMF WEO: 45 макропоказателей, страны, 1980+ (включая проекции)",
+   "rows": 289643,
+   "source": "github.com/datasets/imf-weo"
+  },
+  "weo_indicators": {
+   "desc": "справочник показателей WEO",
+   "rows": 44,
+   "source": "github.com/datasets/imf-weo"
+  },
+  "gdp": {
+   "desc": "World Bank: ВВП, текущие USD",
+   "rows": 13979,
+   "source": "github.com/datasets/gdp"
+  },
+  "inflation": {
+   "desc": "World Bank: инфляция CPI, % г/г",
+   "rows": 13778,
+   "source": "github.com/datasets/inflation"
+  },
+  "population": {
+   "desc": "World Bank: население",
+   "rows": 17394,
+   "source": "github.com/datasets/population"
+  },
+  "fx_daily": {
+   "desc": "ФРС США (H.10): курсы валют к USD, дневные",
+   "rows": 273701,
+   "source": "github.com/datasets/exchange-rates"
+  },
+  "fx_monthly": {
+   "desc": "ФРС США (H.10): курсы валют к USD, месячные",
+   "rows": 17306,
+   "source": "github.com/datasets/exchange-rates"
+  },
+  "brent": {
+   "desc": "Нефть Brent, дневные",
+   "rows": 9108,
+   "source": "github.com/datasets/oil-prices"
+  },
+  "natgas": {
+   "desc": "Газ Henry Hub, дневные",
+   "rows": 5709,
+   "source": "github.com/datasets/natural-gas"
+  },
+  "gold": {
+   "desc": "Золото, месячные",
+   "rows": 2325,
+   "source": "github.com/datasets/gold-prices"
+  },
+  "vix": {
+   "desc": "Индекс VIX, дневные",
+   "rows": 9278,
+   "source": "github.com/datasets/finance-vix"
+  },
+  "sp500": {
+   "desc": "S&P 500, месячные",
+   "rows": 1869,
+   "source": "github.com/datasets/s-and-p-500"
+  },
+  "us10y": {
+   "desc": "Доходность US 10Y, месячная",
+   "rows": 881,
+   "source": "github.com/datasets/bond-yields-us-10y"
+  },
+  "gapminder": {
+   "desc": "Gapminder Systema Globalis: ~110 показателей по странам",
+   "rows": 1359126,
+   "source": "github.com/open-numbers/ddf--gapminder--systema_globalis"
+  },
+  "owid_co2": {
+   "desc": "OWID: выбросы, температура, ВВП",
+   "rows": 50411,
+   "source": "github.com/owid/co2-data"
+  },
+  "owid_energy": {
+   "desc": "OWID: энергетика",
+   "rows": 23377,
+   "source": "github.com/owid/energy-data"
+  },
+  "global_temp_annual": {
+   "desc": "Глобальная температура (аномалия к 1951–1980), годовая: NASA GISS и NOAA",
+   "rows": 323,
+   "source": "github.com/datasets/global-temp"
+  },
+  "global_temp_monthly": {
+   "desc": "Глобальная температура, месячная",
+   "rows": 3871,
+   "source": "github.com/datasets/global-temp"
+  },
+  "co2_ppm_monthly": {
+   "desc": "CO₂ в атмосфере (Мауна-Лоа), ppm, месячные: NOAA GML",
+   "rows": 822,
+   "source": "github.com/datasets/co2-ppm"
+  },
+  "co2_ppm_annual": {
+   "desc": "CO₂ в атмосфере (Мауна-Лоа), ppm, годовые",
+   "rows": 67,
+   "source": "github.com/datasets/co2-ppm"
+  },
+  "sea_level": {
+   "desc": "Уровень моря 1880–2014: EPA (CSIRO, NOAA)",
+   "rows": 144,
+   "source": "github.com/datasets/sea-level-rise"
+  },
+  "sea_level_csiro": {
+   "desc": "Уровень моря, реконструкция CSIRO по 2019",
+   "rows": 140,
+   "source": "github.com/datasets/sea-level-rise"
+  },
+  "glaciers": {
+   "desc": "Баланс массы ледников: WGMS",
+   "rows": 68,
+   "source": "github.com/datasets/glacier-mass-balance"
+  }
+ },
+ "global_updated": "2026-10-19"
+}
