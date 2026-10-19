@@ -45,6 +45,15 @@ INDICATORS = {
     "political_stability": ("Политическая стабильность (WGI)", None, "PV.EST", "Институты"),
     "corruption_control": ("Контроль коррупции (WGI)", None, "CC.EST", "Институты"),
     "conflict_deaths": ("Погибшие в конфликтах (UCDP), чел.", None, None, "Безопасность"),
+    # живые данные World Bank: демография и продовольствие
+    "pop_65plus": ("Население 65+, % населения", None, "SP.POP.65UP.TO.ZS", "Демография"),
+    "pop_0014": ("Население 0–14, % населения", None, "SP.POP.0014.TO.ZS", "Демография"),
+    "fertility": ("Суммарный коэффициент рождаемости", None, "SP.DYN.TFRT.IN", "Демография"),
+    "life_expectancy_wb": ("Продолжительность жизни (WB), лет", None, "SP.DYN.LE00.IN", "Здоровье"),
+    "undernourishment": ("Недоедание, % населения", None, "SN.ITK.DEFC.ZS", "Питание и голод"),
+    "food_production_index": ("Индекс производства продовольствия", None, "AG.PRD.FOOD.XD", "Питание и голод"),
+    "cereal_yield": ("Урожайность зерновых, кг/га", None, "AG.YLD.CREL.KG", "Питание и голод"),
+    "food_imports_share": ("Импорт продовольствия, % импорта товаров", None, "TM.VAL.FOOD.ZS.UN", "Питание и голод"),
 }
 LABELS = {k: v[0] for k, v in INDICATORS.items()}
 WEO_TO_STD = {v[1]: k for k, v in INDICATORS.items() if v[1]}

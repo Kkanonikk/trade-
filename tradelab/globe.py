@@ -244,3 +244,17 @@ def heat(value, vmax):
     t = float(np.clip(value / vmax, 0, 1)) if vmax > 0 else 0.0
     dark, amber, red = (30, 38, 52), (255, 159, 26), (255, 60, 60)
     return lerp_color(dark, amber, t * 2) if t < 0.5 else lerp_color(amber, red, (t - 0.5) * 2)
+
+
+def scale_color(value, lo, hi, better="none"):
+    """Цвет страны по значению: better='down' (выше = хуже): тёмный→красный; 'up' (выше = лучше): красный→тёмный→зелёный;
+    'none': тёмный→янтарный."""
+    if value is None or not np.isfinite(value) or hi <= lo:
+        return None
+    t = float(np.clip((value - lo) / (hi - lo), 0, 1))
+    if better == "down":
+        return heat(t, 1.0)
+    if better == "up":
+        dark, red, green = (30, 38, 52), (255, 77, 79), (38, 194, 129)
+        return lerp_color(red, dark, t * 2) if t < 0.5 else lerp_color(dark, green, (t - 0.5) * 2)
+    return lerp_color((30, 38, 52), (255, 159, 26), t)

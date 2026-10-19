@@ -8,7 +8,7 @@ import streamlit as st
 from plotly.subplots import make_subplots
 
 from tradelab import (autotrade, backtest, compliance, config, demo, indicators, models, optimize,
-                      paper, risk, ru_data, sources, store, strategies, views, views_global, worlddata)
+                      paper, risk, ru_data, sources, store, strategies, views, views_global, views_worldmode, worlddata)
 from tradelab.bcs import TIMEFRAMES, BcsClient, BcsError
 from tradelab.ui import C, pct, style
 
@@ -34,23 +34,29 @@ st.markdown(f"""
 # ---------------------------------------------------------------- боковая панель
 with st.sidebar:
     st.markdown(f"<div class='title'>TRADE LAB</div>", unsafe_allow_html=True)
+    app_mode = st.radio("Режим", ["🌍 Глобальный мир", "📈 Портфель и рынки"], key="app_mode",
+                        help="Глобальный мир: страны, демография, голод, кризисы, климат, торговля, прогнозы и история.")
+    GLOBAL = app_mode.startswith("🌍")
     has_token = bool(config.get("BCS_REFRESH_TOKEN"))
     use_demo = st.toggle("Демо-режим (синтетические данные)", value=not has_token,
-                         help="Случайные котировки для знакомства с интерфейсом. Не реальный рынок.")
-    tf = st.selectbox("Таймфрейм", TIMEFRAMES, index=0)
-    all_tickers = list(config.DEFAULT_TICKERS)
-    extra = st.text_input("Свои тикеры (через запятую)")
-    if extra:
-        all_tickers += [t.strip().upper() for t in extra.split(",") if t.strip()]
-    tickers = st.multiselect("Бумаги", all_tickers, default=config.DEFAULT_TICKERS)
-    years = st.slider("Глубина загрузки, лет", 1, 10, 4)
-    cost_bps = st.number_input("Комиссия + проскальзывание, б.п.", 0.0, 100.0, 5.0)
-    allow_short = st.checkbox("Разрешить short в бэктесте", value=False)
-    st.divider()
-    port_src = st.radio("Портфель для анализа", ["Paper-счёт", "Равные веса", "Свои веса"],
-                        help="Используется на вкладках РИСК и ФАКТОРЫ")
-    if not has_token and not use_demo:
-        st.warning("Токен БКС не задан: скопируй .env.example в .env и вставь токен.")
+                         help="Случайные котировки для знакомства с интерфейсом. Не реальный рынок. В глобальном режиме влияет "
+                              "только на демо-потоки судов и конфликтов.")
+    tf, tickers, years, cost_bps, allow_short, port_src = "D", list(config.DEFAULT_TICKERS), 4, 5.0, False, "Равные веса"
+    if not GLOBAL:
+        tf = st.selectbox("Таймфрейм", TIMEFRAMES, index=0)
+        all_tickers = list(config.DEFAULT_TICKERS)
+        extra = st.text_input("Свои тикеры (через запятую)")
+        if extra:
+            all_tickers += [t.strip().upper() for t in extra.split(",") if t.strip()]
+        tickers = st.multiselect("Бумаги", all_tickers, default=config.DEFAULT_TICKERS)
+        years = st.slider("Глубина загрузки, лет", 1, 10, 4)
+        cost_bps = st.number_input("Комиссия + проскальзывание, б.п.", 0.0, 100.0, 5.0)
+        allow_short = st.checkbox("Разрешить short в бэктесте", value=False)
+        st.divider()
+        port_src = st.radio("Портфель для анализа", ["Paper-счёт", "Равные веса", "Свои веса"],
+                            help="Используется на вкладках РИСК и ФАКТОРЫ")
+        if not has_token and not use_demo:
+            st.warning("Токен БКС не задан: скопируй .env.example в .env и вставь токен.")
 
 if "version" not in st.session_state:
     st.session_state.version = 0
@@ -91,6 +97,10 @@ def bump():
     st.session_state.version += 1
     st.rerun()
 
+
+if GLOBAL:
+    views_worldmode.render(VERSION, bump, use_demo)
+    st.stop()
 
 world = get_world(use_demo, VERSION)
 frames = get_frames(use_demo, tf, tickers, VERSION)

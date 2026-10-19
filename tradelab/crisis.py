@@ -141,15 +141,31 @@ def _gbm():
                                           min_samples_leaf=30, class_weight="balanced", random_state=0)
 
 
-def dataset(panel, kind):
-    """Строки (iso3, год t): признаки, метка, пригодность. Возвращает (X, y) только по риск-набору с известной меткой."""
+def _window_labels(onset, known, horizon):
+    """Метка «кризис начнётся в течение horizon лет (t .. t+h-1)» и признак «весь период известен»."""
+    o = onset.astype(float)
+    k = known.astype(bool)
+    if horizon <= 1:
+        return o, k
+    g_o, g_k = o.groupby(level="iso3"), k.groupby(level="iso3")
+    y = pd.concat([g_o.shift(-j) for j in range(horizon)], axis=1).max(axis=1)
+    ok = k.copy()
+    for j in range(1, horizon):
+        ok &= g_k.shift(-j).fillna(False).astype(bool)
+    return y, ok
+
+
+def dataset(panel, kind, horizon=1):
+    """Строки (iso3, год t): признаки, метка, пригодность. Возвращает (X, y) только по риск-набору с известной меткой.
+    horizon: метка = кризис начнётся в течение horizon лет начиная с года t (признаки известны на конец t-1)."""
     df = derive(panel)
     onset, known, in_crisis = labels(df)
     F = features(df)
-    mask = known[kind] & ~in_crisis[kind].fillna(False).astype(bool)
+    y_all, known_h = _window_labels(onset[kind], known[kind], horizon)
+    mask = known_h & ~in_crisis[kind].fillna(False).astype(bool)
     mask &= F.notna().sum(axis=1) >= max(3, int(0.3 * F.shape[1]))
     X = F[mask]
-    y = onset[kind][mask].astype(int)
+    y = y_all[mask].astype(int)
     keep = X.columns[X.notna().mean() >= 0.3]
     return X[keep], y, F, df
 
@@ -176,15 +192,16 @@ def _score(lr, gb, X):
     return p_lr, p_gb, 0.5 * (p_lr + p_gb)
 
 
-def evaluate(panel, kind, first_test_year=2000, last_year=None, refit_every=3):
+def evaluate(panel, kind, first_test_year=2000, last_year=None, refit_every=3, horizon=1):
     """Walk-forward: модель, обученная строго на годах до начала блока, прогнозирует блок из refit_every лет
     (переобучение раз в refit_every лет ускоряет расчёт, будущего модель не видит). Возвращает метрики и прогнозы."""
-    X, y, _, _ = dataset(panel, kind)
+    X, y, _, _ = dataset(panel, kind, horizon)
     years = X.index.get_level_values("year")
     last_year = last_year or int(years.max())
     rows = []
     for Y in range(first_test_year, last_year + 1, refit_every):
-        tr, te = years < Y, (years >= Y) & (years < Y + refit_every) & (years <= last_year)
+        # метка строки года t опирается на t..t+h-1: в обучение берём только строки, чей исход известен к началу блока
+        tr, te = years <= Y - horizon, (years >= Y) & (years < Y + refit_every) & (years <= last_year)
         if y[tr].sum() < 15 or te.sum() == 0:
             continue
         lr, gb = _fit_models(X[tr], y[tr])
@@ -219,9 +236,10 @@ def calibration(preds, col="ensemble", bins=5):
 class CrisisModel:
     """Обученная на всей доступной истории модель одного вида кризиса: прогноз, причины, what-if."""
 
-    def __init__(self, panel, kind):
+    def __init__(self, panel, kind, horizon=1):
         self.kind = kind
-        X, y, F, df = dataset(panel, kind)
+        self.horizon = horizon
+        X, y, F, df = dataset(panel, kind, horizon)
         self.X, self.y, self.F, self.df = X, y, F, df
         self.lr, self.gb = _fit_models(X, y)
         self.columns = list(X.columns)
@@ -335,13 +353,13 @@ def evaluate_fx(panel, first_test_year=2000):
             "mae_model": float((r["y"] - r["p50"]).abs().mean()), "mae_naive": float((r["y"] - r["hist_med"]).abs().mean())}, r
 
 
-def replay(panel, kind, year):
+def replay(panel, kind, year, horizon=1):
     """«Машина времени»: модель, обученная только на годах < year, оценивает риск на год year; рядом факт.
 
     Возвращает (таблица [logit, gbm, prob, actual], сводка). В таблице только страны из риск-набора года."""
-    X, y, _, _ = dataset(panel, kind)
+    X, y, _, _ = dataset(panel, kind, horizon)
     years = X.index.get_level_values("year")
-    tr, te = years < year, years == year
+    tr, te = years <= year - horizon, years == year
     if y[tr].sum() < 15 or te.sum() == 0:
         raise ValueError(f"Для {year} года недостаточно истории или данных")
     lr, gb = _fit_models(X[tr], y[tr])

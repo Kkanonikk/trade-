@@ -65,6 +65,57 @@
    "desc": "Доходность US 10Y, месячная",
    "rows": 881,
    "source": "github.com/datasets/bond-yields-us-10y"
+  },
+  "gapminder": {
+   "desc": "Gapminder Systema Globalis: ~110 показателей по странам",
+   "rows": 1359126,
+   "source": "github.com/open-numbers/ddf--gapminder--systema_globalis"
+  },
+  "owid_co2": {
+   "desc": "OWID: выбросы, температура, ВВП",
+   "rows": 50411,
+   "source": "github.com/owid/co2-data"
+  },
+  "owid_energy": {
+   "desc": "OWID: энергетика",
+   "rows": 23377,
+   "source": "github.com/owid/energy-data"
+  },
+  "global_temp_annual": {
+   "desc": "Глобальная температура (аномалия к 1951–1980), годовая: NASA GISS и NOAA",
+   "rows": 323,
+   "source": "github.com/datasets/global-temp"
+  },
+  "global_temp_monthly": {
+   "desc": "Глобальная температура, месячная",
+   "rows": 3871,
+   "source": "github.com/datasets/global-temp"
+  },
+  "co2_ppm_monthly": {
+   "desc": "CO₂ в атмосфере (Мауна-Лоа), ppm, месячные: NOAA GML",
+   "rows": 822,
+   "source": "github.com/datasets/co2-ppm"
+  },
+  "co2_ppm_annual": {
+   "desc": "CO₂ в атмосфере (Мауна-Лоа), ppm, годовые",
+   "rows": 67,
+   "source": "github.com/datasets/co2-ppm"
+  },
+  "sea_level": {
+   "desc": "Уровень моря 1880–2014: EPA (CSIRO, NOAA)",
+   "rows": 144,
+   "source": "github.com/datasets/sea-level-rise"
+  },
+  "sea_level_csiro": {
+   "desc": "Уровень моря, реконструкция CSIRO по 2019",
+   "rows": 140,
+   "source": "github.com/datasets/sea-level-rise"
+  },
+  "glaciers": {
+   "desc": "Баланс массы ледников: WGMS",
+   "rows": 68,
+   "source": "github.com/datasets/glacier-mass-balance"
   }
- }
+ },
+ "global_updated": "2026-10-19"
 }

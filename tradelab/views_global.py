@@ -34,23 +34,23 @@ def load_panel(source, version):
 
 
 @st.cache_resource(show_spinner=False)
-def get_models(source, version):
+def get_models(source, version, horizon=1):
     p = load_panel(source, version)
-    models = {k: crisis.CrisisModel(p, k) for k in crisis.available_kinds(p)}
+    models = {k: crisis.CrisisModel(p, k, horizon) for k in crisis.available_kinds(p)}
     return models, crisis.FxModel(p)
 
 
 @st.cache_data(show_spinner=False)
-def cached_replay(source, version, kind, year):
-    return crisis.replay(load_panel(source, version), kind, year)
+def cached_replay(source, version, kind, year, horizon=1):
+    return crisis.replay(load_panel(source, version), kind, year, horizon)
 
 
 @st.cache_data(show_spinner=False)
-def cached_eval(source, version, kind, first_year, last_year):
-    return crisis.evaluate(load_panel(source, version), kind, first_year, last_year)
+def cached_eval(source, version, kind, first_year, last_year, horizon=1):
+    return crisis.evaluate(load_panel(source, version), kind, first_year, last_year, horizon=horizon)
 
 
-def view_crises(version, bump):
+def view_crises(version, bump, horizon_choice=False):
     info = panel_mod.snapshot_info()
     live_exists = len(store.load_panel_long(store.connect_macro())) > 0
     c1, c2 = st.columns([3, 2])
@@ -83,6 +83,13 @@ def view_crises(version, bump):
     mode = st.radio("Режим", ["Машина времени (проверка на истории)", "Прогноз на ближайший год"], horizontal=True,
                     index=0 if source_key == "snapshot" else 1)
     kinds = crisis.available_kinds(panel)
+    horizon = 1
+    if horizon_choice:
+        horizon = st.radio("Горизонт прогноза: кризис начнётся в течение …", [1, 3, 5], horizontal=True,
+                           format_func=lambda h: "1 года" if h == 1 else f"{h} лет", key="crisis_horizon")
+        if horizon > 1:
+            st.caption("Многолетний горизонт: метка = «кризис начнётся в течение h лет». Точность падает с горизонтом, "
+                       "реальную точность см. в блоке проверки ниже.")
     kind = st.selectbox("Вид кризиса", kinds, format_func=lambda k: crisis.KINDS[k])
     if kind == "recession":
         st.warning("Рецессии прогнозируются плохо: на реальной истории модель не лучше простого признака «рост ВВП "
@@ -91,10 +98,11 @@ def view_crises(version, bump):
     if mode.startswith("Машина"):
         max_year = panel_mod.WEO_LAST_ACTUAL if source_key == "snapshot" else int(
             panel.index.get_level_values("year").max())
+        max_year -= horizon - 1
         year = st.slider("Год, на который модель строит прогноз (учится только на более ранних годах)", 1990, max_year,
                          min(2008, max_year))
         try:
-            out, summ = cached_replay(source_key, version, kind, year)
+            out, summ = cached_replay(source_key, version, kind, year, horizon)
         except ValueError as exc:
             return st.warning(str(exc))
         probs = out["prob"]
@@ -104,7 +112,7 @@ def view_crises(version, bump):
         m[2].metric("Из них в верхнем дециле риска", f"{summ['events_in_top_decile']} из {summ['events']}"
                     if summ["events"] else "н/д")
         m[3].metric("AUC этого года", f"{summ['auc']:.2f}" if np.isfinite(summ["auc"]) else "н/д")
-        title = f"{crisis.KINDS[kind].upper()} · РИСК НА {year} ГОД (модель знает только прошлое)"
+        title = f"{crisis.KINDS[kind].upper()} · РИСК НА {year}" + (f"–{year + horizon - 1}" if horizon > 1 else " ГОД") + " (модель знает только прошлое)"
         _crisis_map(probs, title, actual=out.index[out["actual"] == 1].tolist(), panel=panel, year=year - 1)
         st.markdown("**Что реально произошло в этом году**")
         hit = out[out["actual"] == 1].copy()
@@ -121,10 +129,10 @@ def view_crises(version, bump):
                    "предыдущий год, в оценку не входят. Модель не видит ни ответа, ни данных будущих лет.")
     else:
         with st.spinner("Обучаю модели на всей истории (около 30 с при первом запуске)…"):
-            models, fxm = get_models(source_key, version)
+            models, fxm = get_models(source_key, version, horizon)
         model = models[kind]
         probs_df, fyear = model.predict()
-        title = f"{crisis.KINDS[kind].upper()} · ПРОГНОЗ НА {fyear + 1} ГОД"
+        title = f"{crisis.KINDS[kind].upper()} · ПРОГНОЗ НА {fyear + 1}" + (f"–{fyear + horizon}" if horizon > 1 else " ГОД")
         if source_key == "snapshot" and fyear < 2020:
             st.warning(f"Данные снимка по макро доходят до {fyear}: это прогноз на {fyear + 1}, а не на текущий год.")
         probs = probs_df["prob"]
@@ -148,7 +156,7 @@ def view_crises(version, bump):
             for k in kinds:
                 with st.spinner(f"Проверяю: {crisis.KINDS[k]}…"):
                     try:
-                        met, _ = cached_eval(source_key, version, k, first, last)
+                        met, _ = cached_eval(source_key, version, k, first, last, horizon)
                     except ValueError as exc:
                         rows.append({"Кризис": crisis.KINDS[k], "Комментарий": str(exc)})
                         continue

@@ -1,0 +1,787 @@
+"""Глобальный режим: единая рабочая среда по странам мира на открытых данных (прошлое, прогнозы, источники).
+
+Страницы: ОБЗОР, ИССЛЕДОВАТЕЛЬ, СТРАНА, ПУЗЫРЬКИ, ДЕМОГРАФИЯ, ГОЛОД, КЛИМАТ, КРИЗИСЫ, ТОРГОВЛЯ, МОРЕ, КОНФЛИКТЫ, ГОРИЗОНТ,
+ВАЛЮТЫ, ИСТОЧНИКИ. Под каждым графиком показан источник из реестра.
+"""
+import io
+
+import numpy as np
+import pandas as pd
+import plotly.graph_objects as go
+import streamlit as st
+
+from . import aging, catalog, countries, crisis, forecast, gdata, globe, hunger, panel as panel_mod, registry, store
+from . import views_global
+from .ui import C, PALETTE, pct, style
+
+REGION_COLORS = {"Africa": "#FF9F1A", "Americas": "#26C281", "Asia": "#FF4D4F", "Europe": "#4DA3FF", "Oceania": "#B38CFF"}
+REGION_RU = {"Africa": "Африка", "Americas": "Америка", "Asia": "Азия", "Europe": "Европа", "Oceania": "Океания"}
+KEY_PROFILE = [
+    "gm:total_population_with_projections", "gm:median_age_years", "gm:children_and_elderly_per_100_adults",
+    "gm:gdppercapita_us_inflation_adjusted", "gm:life_expectancy_at_birth_data_from_ihme", "gm:hdi_human_development_index",
+    "wp:inflation", "co2:co2_per_capita", "en:renewables_share_elec", "gm:internet_users",
+    "gm:food_supply_kilocalories_per_person_and_day", "gm:malnutrition_weight_for_age_percent_of_children_under_5"]
+
+
+# ================================================================ данные и вспомогательные
+@st.cache_data(show_spinner=False)
+def get_wide(version):
+    live = store.load_panel_long(store.connect_macro())
+    extra = panel_mod.from_long(live) if len(live) else None
+    return gdata.load(extra)
+
+
+@st.cache_data(show_spinner=False)
+def get_avail(version):
+    return gdata.available(get_wide(version))
+
+
+@st.cache_data(show_spinner=False)
+def get_pop_path(version):
+    return aging.population_path(get_wide(version))
+
+
+def src_box(keys, note=""):
+    """Источник под графиком: названия, организации, ссылки и лицензии из реестра."""
+    ids, lines = [], []
+    meta = gdata.meta()
+    for k in keys:
+        s = meta.get(k, {}).get("source")
+        if s and s not in ids:
+            ids.append(s)
+    for i in ids:
+        d = registry.SOURCES.get(i)
+        if d:
+            lines.append(f"**{d['name']}**, {d['org']}: {d['url']} · лицензия: {d['license']}" + (f" · {d['note']}" if d["note"] else ""))
+    updated = panel_mod.snapshot_info().get("global_updated") or panel_mod.snapshot_info().get("updated", "н/д")
+    st.caption("📎 Источник: " + " | ".join(lines) + f" · снимок от {updated}" + (f" · {note}" if note else ""))
+
+
+def fmt_val(v, unit=""):
+    if v is None or not np.isfinite(v):
+        return "н/д"
+    a = abs(v)
+    txt = f"{v:,.0f}" if a >= 1000 else (f"{v:.1f}" if a >= 10 else f"{v:.2f}")
+    return f"{txt} {unit}".strip()
+
+
+def indicator_picker(avail, key, default=None):
+    """Выбор показателя из всех доступных; поле поддерживает поиск набором текста."""
+    options = avail["key"].tolist()
+    info = avail.set_index("key")
+    labels = {k: f"{info.loc[k, 'group']} · {info.loc[k, 'label']}" + (f" ({info.loc[k, 'unit']})" if info.loc[k, "unit"] else "") for k in options}
+    idx = options.index(default) if default in options else 0
+    return st.selectbox("Показатель (можно искать по названию)", options, index=idx, format_func=lambda k: labels[k], key=key)
+
+
+def default_year(w, k):
+    """Год по умолчанию: последний фактический, где данных больше всего."""
+    s = w[k].dropna()
+    yrs = s.index.get_level_values("year")
+    counts = s.groupby(yrs).size()
+    cap = gdata.last_actual_year(k)
+    ok = counts[counts >= 0.6 * counts.max()]
+    y = int(ok.index.max()) if len(ok) else int(yrs.max())
+    return min(y, cap) if cap else y
+
+
+def country_options(w):
+    isos = sorted(w.index.get_level_values("iso3").unique(), key=countries.short_ru)
+    return [i for i in isos if i in countries.table().index]
+
+
+def region_of(iso):
+    t = countries.table()
+    return t.loc[iso, "region"] if iso in t.index and isinstance(t.loc[iso, "region"], str) else "Прочее"
+
+
+def value_map(values, k, year, title_extra="", height=600, key_suffix=""):
+    """Карта со значениями показателя: подсказка по странам с рангом, единицей и пометкой прогноза."""
+    m = gdata.meta()[k]
+    if values.empty:
+        st.info("Для выбранного года данных нет.")
+        return
+    lo, hi = float(values.quantile(0.03)), float(values.quantile(0.97))
+    if hi <= lo:
+        lo, hi = float(values.min()), float(values.max()) + 1e-9
+    rank = values.rank(ascending=False, method="min")
+    proj = m.get("projection_from")
+    colors, infos = {}, {}
+    for iso, v in values.items():
+        colors[iso] = globe.scale_color(float(v), lo, hi, m["better"])
+        tag = "<br><span style='color:#B38CFF'>прогноз ООН, не факт</span>" if proj and year >= proj else ""
+        infos[iso] = (f"<b style='color:#FF9F1A'>{countries.short_ru(iso)}</b><br>{m['label']} ({year}): <b>{fmt_val(float(v), m['unit'])}</b>"
+                      f"<br>место {int(rank[iso])} из {len(values)}{tag}")
+    leg = {"down": [("ниже (лучше)", "#1e2634"), ("выше (хуже)", "#FF3C3C")], "up": [("ниже (хуже)", "#FF4D4F"), ("выше (лучше)", "#26C281")],
+           "none": [("ниже", "#1e2634"), ("выше", "#FF9F1A")]}[m["better"]]
+    leg = [(f"{leg[0][0]} · {fmt_val(lo)}", leg[0][1]), (f"{leg[1][0]} · {fmt_val(hi)}", leg[1][1])]
+    mode = st.radio("Вид карты", ["Карта", "Глобус"], horizontal=True, key=f"vm_mode_{k}_{key_suffix}")
+    views_global.world_map(colors, infos, f"{m['label'].upper()} · {year}{title_extra}", leg, mode="flat" if mode == "Карта" else "globe",
+                           height=height)
+
+
+def series_chart(w, k, isos, y0=None, height=380):
+    """Линии стран по показателю: факт сплошной, прогноз ООН пунктиром."""
+    m = gdata.meta()[k]
+    proj = m.get("projection_from")
+    fig = go.Figure()
+    for i, iso in enumerate(isos):
+        s = gdata.series(w, k, iso)
+        if y0:
+            s = s[s.index >= y0]
+        if s.empty:
+            continue
+        col = PALETTE[i % len(PALETTE)]
+        if proj:
+            a, b = s[s.index < proj], s[s.index >= proj - 1]
+            fig.add_scatter(x=a.index, y=a.values, name=countries.short_ru(iso), line=dict(color=col), mode="lines")
+            fig.add_scatter(x=b.index, y=b.values, name=f"{countries.short_ru(iso)} (прогноз ООН)", line=dict(color=col, dash="dot"),
+                            mode="lines", showlegend=False)
+        else:
+            fig.add_scatter(x=s.index, y=s.values, name=countries.short_ru(iso), line=dict(color=col), mode="lines")
+    fig.update_layout(yaxis_title=f"{m['label']}" + (f", {m['unit']}" if m["unit"] else ""))
+    st.plotly_chart(style(fig, height), width="stretch")
+
+
+# ================================================================ ОБЗОР МИРА
+def page_overview(version):
+    w, avail = get_wide(version), get_avail(version)
+    st.markdown("### Мир одним взглядом")
+    path = get_pop_path(version)
+    cols = st.columns(5)
+    world_2025 = float(path[2025].sum()) if 2025 in path.columns else float("nan")
+    world_2100 = float(path[2100].sum()) if 2100 in path.columns else float("nan")
+    cols[0].metric("Население 2025 (сумма стран)", f"{world_2025 / 1e9:.2f} млрд", f"{(world_2100 / world_2025 - 1):+.0%} к 2100 (ООН)", delta_color="off")
+    peaks = aging.population_peaks(w)
+    cols[1].metric("Стран с уже достигнутым пиком населения", f"{int((peaks['peak_year'] <= 2025).sum())} из {len(peaks)}")
+    age25 = gdata.cross_section(w, aging.MEDIAN_AGE, 2025)
+    cols[2].metric("Старейшая страна 2025", countries.short_ru(age25.idxmax()), f"медианный возраст {age25.max():.0f} лет", delta_color="off")
+    try:
+        t = pd.read_csv(panel_mod.SNAP / "global_temp_annual.csv.gz")
+        t = t[t["Source"] == "GCAG"].sort_values("Year")
+        cols[3].metric("Температура: аномалия", f"{t['Mean'].iloc[-1]:+.2f} °C", f"{int(t['Year'].iloc[-1])} год (к 1951–1980)", delta_color="off")
+    except Exception:
+        pass
+    try:
+        c = pd.read_csv(panel_mod.SNAP / "co2_ppm_annual.csv.gz").sort_values("Year")
+        cols[4].metric("CO₂ в атмосфере", f"{c['Mean'].iloc[-1]:.0f} ppm", f"{int(c['Year'].iloc[-1])} год, Мауна-Лоа", delta_color="off")
+    except Exception:
+        pass
+    layer = st.radio("Слой карты", ["Медианный возраст", "Прирост населения", "Продовольственная уязвимость", "CO₂ на душу", "ВВП на душу"],
+                     horizontal=True)
+    ykey = {"Медианный возраст": ("gm:median_age_years", 2025), "Прирост населения": ("gm:population_growth_annual_percent_with_projections", 2025),
+            "CO₂ на душу": ("co2:co2_per_capita", None), "ВВП на душу": ("gm:gdppercapita_us_inflation_adjusted", None)}
+    if layer == "Продовольственная уязвимость":
+        yr = 2022
+        idx, _ = hunger.index(w, yr)
+        colors = {i: globe.scale_color(float(v), float(idx.quantile(.03)), float(idx.quantile(.97)), "down") for i, v in idx.items()}
+        infos = {i: f"<b style='color:#FF9F1A'>{countries.short_ru(i)}</b><br>индекс уязвимости {yr}: <b>{v:.0f}</b> из 100" for i, v in idx.items()}
+        views_global.world_map(colors, infos, f"ПРОДОВОЛЬСТВЕННАЯ УЯЗВИМОСТЬ · {yr}", [("ниже", "#1e2634"), ("выше", "#FF3C3C")], height=560)
+        src_box(list(hunger.COMPONENTS), "индекс 0–100 рассчитан приложением, см. страницу ГОЛОД")
+    else:
+        k, y = ykey[layer]
+        y = y or default_year(w, k)
+        value_map(gdata.cross_section(w, k, y), k, y, height=560, key_suffix="ov")
+        src_box([k])
+    a, b = st.columns(2)
+    with a:
+        st.markdown("**Где население растёт быстрее всего к 2050 (ООН)**")
+        pk = peaks.assign(g=(peaks["y2050"] / peaks["now"] - 1)).sort_values("g", ascending=False).head(8)
+        st.dataframe(pd.DataFrame({"Страна": [countries.short_ru(i) for i in pk.index], "К 2050": pk["g"]}), hide_index=True,
+                     column_config={"К 2050": st.column_config.NumberColumn(format="percent")})
+    with b:
+        st.markdown("**Где население сократится сильнее всего к 2050 (ООН)**")
+        pk = peaks.assign(g=(peaks["y2050"] / peaks["now"] - 1)).sort_values("g").head(8)
+        st.dataframe(pd.DataFrame({"Страна": [countries.short_ru(i) for i in pk.index], "К 2050": pk["g"]}), hide_index=True,
+                     column_config={"К 2050": st.column_config.NumberColumn(format="percent")})
+    src_box([aging.POPULATION, aging.GROWTH_POP])
+    st.info(f"В базе {len(avail)} показателей по {w.index.get_level_values('iso3').nunique()} странам и территориям; "
+            "все карты и графики ниже показывают источник. Прогнозы ООН помечены как прогноз, а статистические прогнозы приложения "
+            "всегда сопровождаются проверкой на истории.")
+
+
+# ================================================================ ИССЛЕДОВАТЕЛЬ
+def page_explorer(version):
+    w, avail = get_wide(version), get_avail(version)
+    k = indicator_picker(avail, "ex_k", "gm:median_age_years")
+    m = gdata.meta()[k]
+    s_all = w[k].dropna()
+    ys = sorted(s_all.index.get_level_values("year").unique())
+    y = st.select_slider("Год", options=ys, value=default_year(w, k), key=f"ex_y_{k}")
+    proj = m.get("projection_from")
+    if proj and y >= proj:
+        st.warning(f"{y} год это прогноз ООН (средний вариант), а не наблюдение.")
+    vals = gdata.cross_section(w, k, y)
+    c = st.columns(4)
+    c[0].metric("Стран с данными", len(vals))
+    c[1].metric("Медиана", fmt_val(float(vals.median()), m["unit"]) if len(vals) else "н/д")
+    if len(vals):
+        c[2].metric("Максимум", f"{countries.short_ru(vals.idxmax())}: {fmt_val(float(vals.max()), m['unit'])}")
+        c[3].metric("Минимум", f"{countries.short_ru(vals.idxmin())}: {fmt_val(float(vals.min()), m['unit'])}")
+    value_map(vals, k, y, key_suffix="ex")
+    src_box([k])
+    a, b = st.columns(2)
+    with a:
+        st.markdown("**Лидеры и аутсайдеры**")
+        top = vals.sort_values(ascending=False)
+        tbl = pd.concat([top.head(10), top.tail(10)])
+        st.dataframe(pd.DataFrame({"Страна": [countries.short_ru(i) for i in tbl.index], "Значение": tbl.values}), hide_index=True, height=420)
+    with b:
+        st.markdown("**Распределение по странам**")
+        fig = go.Figure(go.Histogram(x=vals.values, nbinsx=30, marker_color=C["accent"]))
+        fig.update_layout(xaxis_title=f"{m['label']}, {m['unit']}", yaxis_title="Стран")
+        st.plotly_chart(style(fig, 420), width="stretch")
+    st.markdown("**Динамика выбранных стран**")
+    sel = st.multiselect("Страны", country_options(w), default=[i for i in ("RUS", "USA", "CHN", "IND", "DEU", "BRA") if i in country_options(w)],
+                         format_func=countries.short_ru, key=f"ex_c_{k}")
+    series_chart(w, k, sel, height=400)
+    src_box([k])
+    out = pd.DataFrame({"iso3": vals.index, "country": [countries.short_ru(i) for i in vals.index], "value": vals.values, "year": y, "indicator": m["label"],
+                        "unit": m["unit"], "source": registry.SOURCES[m["source"]]["name"]})
+    st.download_button("Скачать срез (CSV)", out.to_csv(index=False).encode("utf-8-sig"), f"{k.replace(':', '_')}_{y}.csv", "text/csv")
+
+
+# ================================================================ СТРАНА (досье и прогноз)
+@st.cache_data(show_spinner=False)
+def run_backtest_cached(version, k, horizon):
+    w = get_wide(version)
+    ser = {iso: w.loc[iso, k].dropna() for iso in w.index.get_level_values("iso3").unique() if w.loc[iso, k].notna().any()}
+    cap = gdata.last_actual_year(k)
+    return forecast.run_backtest(ser, horizon=horizon, last_year_cap=cap)
+
+
+def page_country(version):
+    w, avail = get_wide(version), get_avail(version)
+    iso = st.selectbox("Страна", country_options(w), index=country_options(w).index("RUS") if "RUS" in country_options(w) else 0,
+                       format_func=countries.short_ru, key="cty_iso")
+    t = countries.table()
+    st.markdown(f"### {countries.short_ru(iso)}")
+    st.caption(f"{t.loc[iso, 'name_en']} · регион: {REGION_RU.get(region_of(iso), region_of(iso))} · валюта: {t.loc[iso, 'currency']}")
+    meta = gdata.meta()
+    cols = st.columns(4)
+    shown = 0
+    for k in KEY_PROFILE:
+        s = gdata.series(w, k, iso)
+        if s.empty:
+            continue
+        last_actual = gdata.last_actual_year(k)
+        s_act = s[s.index <= last_actual] if last_actual else s
+        if s_act.empty:
+            continue
+        y = int(s_act.index[-1])
+        v = float(s_act.iloc[-1])
+        xs = gdata.cross_section(w, k, y)
+        rk = int(xs.rank(ascending=False, method="min").get(iso, np.nan)) if iso in xs.index else None
+        with cols[shown % 4]:
+            st.metric(meta[k]["label"], fmt_val(v, meta[k]["unit"]), f"{y} · место {rk} из {len(xs)}" if rk else f"{y}", delta_color="off")
+            spark = s_act.tail(30)
+            fig = go.Figure(go.Scatter(x=spark.index, y=spark.values, line=dict(color=C["accent"], width=1.6), mode="lines"))
+            fig.update_layout(height=60, margin=dict(l=0, r=0, t=0, b=0), paper_bgcolor=C["bg"], plot_bgcolor=C["bg"])
+            fig.update_xaxes(visible=False)
+            fig.update_yaxes(visible=False)
+            st.plotly_chart(fig, width="stretch", config={"displayModeBar": False}, key=f"spark_{iso}_{k}")
+        shown += 1
+    src_box([k for k in KEY_PROFILE if not gdata.series(w, k, iso).empty])
+
+    st.markdown("#### Прогноз показателя")
+    pool = avail[avail["key"].map(lambda k: len(gdata.series(w, k, iso)) >= 12)]
+    kk = indicator_picker(pool, "cty_k", "gm:median_age_years" if "gm:median_age_years" in pool["key"].values else pool["key"].iloc[0])
+    m = meta[kk]
+    hz = st.radio("Горизонт, лет", [5, 10], horizontal=True, key="cty_h")
+    with st.spinner("Проверяю методы на истории всех стран…"):
+        bt = run_backtest_cached(version, kk, hz)
+    if not bt.mase:
+        st.warning("Для этого показателя мало данных, чтобы проверить прогноз на истории.")
+        return
+    cap = gdata.last_actual_year(kk)
+    s = gdata.series(w, kk, iso)
+    s_act = s[s.index <= cap] if cap else s
+    fc = forecast.forecast_series(s_act, bt, hz)
+    fig = go.Figure()
+    hist = s_act.tail(45)
+    fig.add_scatter(x=hist.index, y=hist.values, name="Факт", line=dict(color="#E8ECF1", width=2), mode="lines")
+    if fc is not None:
+        fig.add_scatter(x=fc["year"], y=fc["p90"], line=dict(width=0), showlegend=False, mode="lines")
+        fig.add_scatter(x=fc["year"], y=fc["p10"], fill="tonexty", fillcolor="rgba(255,159,26,0.20)", line=dict(width=0), name="P10–P90 (по ошибкам на истории)", mode="lines")
+        fig.add_scatter(x=fc["year"], y=fc["mean"], name=f"Прогноз приложения: {forecast.LABELS[fc['method'].iloc[0]]}", line=dict(color=C["accent"], width=2.2), mode="lines")
+    if cap:
+        un = s[s.index >= cap]
+        fig.add_scatter(x=un.index, y=un.values, name="Прогноз ООН (средний вариант)", line=dict(color=C["violet"], dash="dot"), mode="lines")
+    fig.update_layout(yaxis_title=f"{m['label']}, {m['unit']}")
+    st.plotly_chart(style(fig, 420), width="stretch")
+    best = bt.best
+    sk = forecast.skill_table(bt)
+    base = sk[sk["Метод"] == forecast.LABELS["naive"]]
+    kskill = float(1 - bt.mase[best][min(hz, len(bt.mase[best])) - 1] / bt.mase["naive"][min(hz, len(bt.mase["naive"])) - 1])
+    c = st.columns(4)
+    c[0].metric("Лучший метод по истории", forecast.LABELS[best])
+    c[1].metric(f"Навык на {hz} л. против «ничего не меняется»", f"{kskill:+.0%}")
+    c[2].metric("Рядов в проверке", bt.n_series)
+    c[3].metric("Покрытие интервала P10–P90 на поздних годах", pct(bt.coverage, 0) if np.isfinite(bt.coverage) else "н/д")
+    if kskill < 0.05:
+        st.warning("Метод почти не лучше наивного прогноза «останется как сейчас»: прогнозу этого показателя доверять осторожно.")
+    with st.expander("Все методы и их точность на истории"):
+        st.dataframe(sk, hide_index=True, width="stretch")
+        st.caption("MASE: средняя ошибка в единицах типичного годового изменения ряда страны; навык = 1 − MASE метода / MASE наивного. "
+                   "Проверка на прошлых прогнозах всех стран с шагом 1–3 года.")
+    src_box([kk], "статистический прогноз рассчитан приложением")
+
+    st.markdown("#### Профиль относительно мира")
+    keys = [k for k in KEY_PROFILE if not gdata.series(w, k, iso).empty][:10]
+    if len(keys) >= 4:
+        pcts = []
+        labels = []
+        for k in keys:
+            ca = gdata.last_actual_year(k)
+            s = gdata.series(w, k, iso)
+            s = s[s.index <= ca] if ca else s
+            y = int(s.index[-1])
+            xs = gdata.cross_section(w, k, y)
+            r = float((xs < s.iloc[-1]).mean())
+            pcts.append(1 - r if meta[k]["better"] == "down" else r)
+            labels.append(meta[k]["label"])
+        fig = go.Figure(go.Scatterpolar(r=pcts + [pcts[0]], theta=labels + [labels[0]], fill="toself", line=dict(color=C["accent"]),
+                                        fillcolor="rgba(255,159,26,0.25)"))
+        fig.update_layout(polar=dict(radialaxis=dict(range=[0, 1], tickformat=".0%"), bgcolor=C["bg"]))
+        st.plotly_chart(style(fig, 440), width="stretch")
+        st.caption("Чем дальше от центра, тем лучше относительно других стран (для «чем ниже, тем лучше» шкала перевёрнута).")
+    idx, contrib = hunger.index(w, 2022)
+    if iso in idx.index:
+        st.markdown("#### Риски")
+        c = st.columns(3)
+        c[0].metric("Продовольственная уязвимость", f"{idx[iso]:.0f} из 100", f"место {int(idx.rank(ascending=False)[iso])} из {len(idx)}", delta_color="off")
+        c[1].metric("Население к 2050 (ООН)", pct(float(get_pop_path(version).loc[iso, 2050] / get_pop_path(version).loc[iso, 2025] - 1), 0) if iso in get_pop_path(version).index else "н/д")
+        age = gdata.series(w, aging.MEDIAN_AGE, iso)
+        if not age.empty:
+            c[2].metric("Медианный возраст 2025 → 2050", f"{age.get(2025, np.nan):.0f} → {age.get(2050, np.nan):.0f}")
+
+
+# ================================================================ ПУЗЫРЬКИ
+def page_bubbles(version):
+    w, avail = get_wide(version), get_avail(version)
+    path = get_pop_path(version)
+    st.markdown("### Пузырьки: как страны движутся во времени")
+    st.caption("Две оси по выбору, размер = население (по годовой траектории, согласованной с прогнозом ООН), цвет = регион. "
+               "Нажми ▶ под графиком или двигай ползунок.")
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        kx = indicator_picker(avail, "bb_x", "gm:gdppercapita_us_inflation_adjusted")
+    with c2:
+        ky = indicator_picker(avail, "bb_y", "gm:life_expectancy_at_birth_data_from_ihme")
+    logx = c3.checkbox("Логарифмическая ось X", value=True)
+    mx, my = gdata.meta()[kx], gdata.meta()[ky]
+    capy = min(filter(None, [gdata.last_actual_year(kx), gdata.last_actual_year(ky)]), default=None)
+    ys = sorted(set(w[kx].dropna().index.get_level_values("year")) & set(w[ky].dropna().index.get_level_values("year")))
+    ys = [y for y in ys if y >= 1960 and (capy is None or y <= capy)]
+    if len(ys) < 5:
+        return st.info("У этой пары показателей мало общих лет.")
+    step = max(1, len(ys) // 70)
+    ys = ys[::step] + ([ys[-1]] if ys[-1] not in ys[::step] else [])
+    frames, allx, ally = [], [], []
+    for y in ys:
+        d = pd.concat([gdata.cross_section(w, kx, y).rename("x"), gdata.cross_section(w, ky, y).rename("y")], axis=1).dropna()
+        d = d[d.index.isin(countries.table().index)]
+        if logx:
+            d = d[d["x"] > 0]
+        pop = path[y].reindex(d.index) if y in path.columns else pd.Series(np.nan, index=d.index)
+        d = d.assign(pop=pop.fillna(pop.median() if pop.notna().any() else 1e6))
+        d["region"] = [region_of(i) for i in d.index]
+        frames.append((y, d))
+        allx += list(d["x"]); ally += list(d["y"])
+    xr = [float(np.quantile(allx, 0.002)), float(np.quantile(allx, 0.998))]
+    yr = [float(np.quantile(ally, 0.002)), float(np.quantile(ally, 0.998))]
+    if logx:
+        xr = [np.log10(xr[0]), np.log10(xr[1])]
+    pad = (yr[1] - yr[0]) * 0.05
+    yr = [yr[0] - pad, yr[1] + pad]
+    sizeref = 2.0 * max(float(f["pop"].max()) for _, f in frames) / (55.0 ** 2)
+
+    def trace(d):
+        return go.Scatter(x=d["x"], y=d["y"], mode="markers", text=[countries.short_ru(i) for i in d.index], customdata=d["pop"] / 1e6,
+                          marker=dict(size=d["pop"], sizemode="area", sizeref=sizeref, sizemin=3, opacity=0.78,
+                                      color=[REGION_COLORS.get(r, "#8B96A5") for r in d["region"]], line=dict(width=0.5, color="#0b0f14")),
+                          hovertemplate="<b>%{text}</b><br>X: %{x:,.2f}<br>Y: %{y:,.2f}<br>население: %{customdata:,.0f} млн<extra></extra>")
+    fig = go.Figure(data=[trace(frames[0][1])],
+                    frames=[go.Frame(data=[trace(d)], name=str(y)) for y, d in frames])
+    fig.update_layout(
+        xaxis=dict(title=f"{mx['label']}" + (f", {mx['unit']}" if mx["unit"] else ""), type="log" if logx else "linear",
+                   range=xr),
+        yaxis=dict(title=f"{my['label']}" + (f", {my['unit']}" if my["unit"] else ""), range=yr),
+        updatemenus=[dict(type="buttons", x=0.0, y=-0.18, direction="left", buttons=[
+            dict(label="▶ Пуск", method="animate", args=[None, dict(frame=dict(duration=350, redraw=True), fromcurrent=True, transition=dict(duration=250))]),
+            dict(label="❚❚ Пауза", method="animate", args=[[None], dict(frame=dict(duration=0), mode="immediate")])])],
+        sliders=[dict(x=0.12, len=0.88, y=-0.1, currentvalue=dict(prefix="Год: "), steps=[
+            dict(label=str(y), method="animate", args=[[str(y)], dict(mode="immediate", frame=dict(duration=0, redraw=True), transition=dict(duration=0))])
+            for y, _ in frames])])
+    st.plotly_chart(style(fig, 640), width="stretch")
+    st.caption("Цвета: " + ", ".join(f"<span style='color:{c}'>■</span> {REGION_RU[r]}" for r, c in REGION_COLORS.items()), unsafe_allow_html=True)
+    st.caption("Размер пузырька до 2013 года факт, дальше годовая траектория по приросту ООН, откалиброванная к точкам 2050 и 2100 источника.")
+    src_box([kx, ky, aging.POPULATION])
+
+
+# ================================================================ ДЕМОГРАФИЯ
+def page_demography(version):
+    w, avail = get_wide(version), get_avail(version)
+    path = get_pop_path(version)
+    st.markdown("### Демография: где постареет мир и что это значит для экономики")
+    tabs = st.tabs(["Возраст на карте", "Рейтинги", "Население и рождаемость", "Влияние на экономику"])
+    with tabs[0]:
+        ys = sorted(w[aging.MEDIAN_AGE].dropna().index.get_level_values("year").unique())
+        y = st.select_slider("Год (после 2024 это прогноз ООН)", options=ys, value=2025, key="dm_year")
+        if y >= 2024:
+            st.warning(f"{y} год это прогноз ООН (средний вариант), а не наблюдение.")
+        vals = gdata.cross_section(w, aging.MEDIAN_AGE, y)
+        value_map(vals, aging.MEDIAN_AGE, y, key_suffix="dm")
+        src_box([aging.MEDIAN_AGE])
+        dep = gdata.cross_section(w, aging.DEPENDENCY, y)
+        if len(dep):
+            st.markdown(f"**Нагрузка на работающих в {y} году: дети и пожилые на 100 взрослых.** "
+                        f"Выше всех: {countries.short_ru(dep.idxmax())} ({dep.max():.0f}), ниже всех: {countries.short_ru(dep.idxmin())} ({dep.min():.0f}).")
+            src_box([aging.DEPENDENCY])
+    with tabs[1]:
+        a, b = st.columns(2)
+        y0 = a.selectbox("Год для рейтинга «самые старые»", [2000, 2025, 2050, 2075, 2100], index=1)
+        old, young = aging.ranking(w, y0, n=15)
+        with a:
+            st.markdown(f"**Самый высокий медианный возраст, {y0}**")
+            st.dataframe(pd.DataFrame({"Страна": [countries.short_ru(i) for i in old.index], "Лет": old.values}), hide_index=True)
+        with b:
+            sp = aging.aging_speed(w, 2025, 2050).sort_values(ascending=False)
+            st.markdown("**Быстрее всего стареют 2025→2050 (прибавка медианного возраста)**")
+            st.dataframe(pd.DataFrame({"Страна": [countries.short_ru(i) for i in sp.head(15).index], "+лет": sp.head(15).values}), hide_index=True)
+        fig = go.Figure(go.Histogram(x=sp.values, nbinsx=30, marker_color=C["accent"]))
+        fig.update_layout(xaxis_title="Прибавка медианного возраста 2025→2050, лет", yaxis_title="Стран")
+        st.plotly_chart(style(fig, 280), width="stretch")
+        src_box([aging.MEDIAN_AGE])
+    with tabs[2]:
+        peaks = aging.population_peaks(w)
+        chk = aging.path_consistency(w, path)
+        st.caption("Траектория населения восстановлена из годового прироста ООН и откалибрована к точкам 2050 и 2100; "
+                   f"медианное расхождение с исходными точками: {chk.get(2050, float('nan')):.1%} (2050), {chk.get(2100, float('nan')):.1%} (2100).")
+        c = st.columns(3)
+        c[0].metric("Пик уже позади (по ООН)", f"{int((peaks['peak_year'] <= 2025).sum())} стран")
+        c[1].metric("Население сократится к 2100", f"{int((peaks['change_2100'] < 0).sum())} из {len(peaks)} стран")
+        c[2].metric("Вырастет более чем вдвое к 2100", f"{int((peaks['change_2100'] > 1).sum())} стран")
+        t = peaks.assign(Страна=[countries.short_ru(i) for i in peaks.index]).sort_values("change_2100")
+        t = t.rename(columns={"now": "2024, чел.", "peak_year": "Год пика", "y2050": "2050, чел.", "y2100": "2100, чел.", "change_2100": "Изменение к 2100"})
+        st.dataframe(t[["Страна", "2024, чел.", "Год пика", "2050, чел.", "2100, чел.", "Изменение к 2100"]], hide_index=True, height=360,
+                     column_config={"Изменение к 2100": st.column_config.NumberColumn(format="percent"),
+                                    "2024, чел.": st.column_config.NumberColumn(format="%.0f"),
+                                    "2050, чел.": st.column_config.NumberColumn(format="%.0f"),
+                                    "2100, чел.": st.column_config.NumberColumn(format="%.0f"), "Год пика": st.column_config.NumberColumn(format="%d")})
+        sel = st.multiselect("Траектории стран", country_options(w), default=[i for i in ("RUS", "CHN", "IND", "NGA", "JPN", "USA") if i in path.index],
+                             format_func=countries.short_ru, key="dm_pop")
+        fig = go.Figure()
+        for i, iso in enumerate(sel):
+            if iso in path.index:
+                s = path.loc[iso].dropna()
+                fig.add_scatter(x=s.index, y=s.values / 1e6, name=countries.short_ru(iso), line=dict(color=PALETTE[i % len(PALETTE)]))
+        fig.add_vline(x=2024.5, line_dash="dot", line_color="#8B96A5", annotation_text="дальше прогноз ООН")
+        fig.update_layout(yaxis_title="Население, млн", yaxis_type="log")
+        st.plotly_chart(style(fig, 380), width="stretch")
+        tfr = aging.fertility(w)
+        if len(tfr) and sel:
+            fig = go.Figure()
+            for i, iso in enumerate(sel):
+                if iso in tfr.index.get_level_values("iso3"):
+                    s = tfr.loc[iso].dropna()
+                    fig.add_scatter(x=s.index, y=s.values, name=countries.short_ru(iso), line=dict(color=PALETTE[i % len(PALETTE)]))
+            fig.add_hline(y=2.1, line_dash="dot", line_color="#8B96A5", annotation_text="уровень замещения ≈ 2.1")
+            fig.update_layout(yaxis_title="Детей на женщину")
+            st.markdown("**Рождаемость (приближение Gapminder: выжившие + умершие дети на женщину)**")
+            st.plotly_chart(style(fig, 320), width="stretch")
+        src_box([aging.POPULATION, aging.GROWTH_POP, aging.KIDS_SURV])
+    with tabs[3]:
+        st.markdown("**Связана ли скорость старения с ростом, сбережениями и бюджетом?**")
+        st.caption("Панель 5-летних окон 1980–2013 по странам (IMF WEO + ООН). Оцениваем, как изменение медианного возраста за окно связано "
+                   "со средним значением показателя в окне. Две спецификации: «просто связь» между странами и «внутри страны» "
+                   "(фиксированные эффекты страны и периода, стандартные ошибки по кластерам стран).")
+        with st.spinner("Считаю панельные регрессии…"):
+            pooled = aging.economic_effect(w, country_fe=False)
+            fe = aging.economic_effect(w, country_fe=True)
+        if fe.empty:
+            return st.info("Недостаточно данных для оценки.")
+        fe["ci"] = 1.96 * fe["se"]
+        pooled["ci"] = 1.96 * pooled["se"]
+        fig = go.Figure()
+        for name, d, col in (("Между странами (без фикс. эффектов)", pooled, C["violet"]), ("Внутри страны (фикс. эффекты)", fe, C["accent"])):
+            fig.add_scatter(x=d["coef"], y=d["label"], mode="markers", name=name, marker=dict(color=col, size=10),
+                            error_x=dict(type="data", array=d["ci"], color=col))
+        fig.add_vline(x=0, line_color="#8B96A5")
+        fig.update_layout(xaxis_title="Эффект +1 года медианного возраста за 5 лет, 95% интервал")
+        st.plotly_chart(style(fig, 360), width="stretch")
+        tbl = fe[["label", "coef", "se", "t", "n", "countries"]].rename(columns={"label": "Показатель", "coef": "Коэф.", "se": "SE", "t": "t", "n": "Наблюдений", "countries": "Стран"})
+        st.dataframe(tbl, hide_index=True, column_config={"Коэф.": st.column_config.NumberColumn(format="%.3f"), "SE": st.column_config.NumberColumn(format="%.3f"),
+                                                          "t": st.column_config.NumberColumn(format="%.2f")})
+        sig = fe[fe["t"].abs() >= 2]
+        if sig.empty:
+            st.info("Вывод: внутри страны ни одна из связей не отличима от нуля (|t| < 2). Старение объясняет экономику хуже, чем принято думать: "
+                    "эффект может быть, но на этих данных его не выделить. Прогнозы ниже показывают лишь «если связь реальна».")
+        else:
+            st.success("Значимые связи внутри страны: " + ", ".join(f"{r.label} (t={r.t:.1f})" for r in sig.itertuples()) +
+                       ". Это статистическая связь, а не доказанная причинность.")
+        outcome = st.selectbox("Сценарий: подразумеваемый эффект старения 2025→2050 на", list(aging.OUTCOMES), format_func=lambda k: aging.OUTCOMES[k][1], key="dm_out")
+        sc = aging.scenario_effect(w, fe, outcome=outcome)
+        if sc.empty:
+            st.info("Нет оценки для этого показателя.")
+        else:
+            lim = float(sc["effect"].abs().quantile(0.97)) or 1.0
+            colors = {i: globe.scale_color(float(v), -lim, lim, "up") for i, v in sc["effect"].items()}
+            infos = {i: f"<b style='color:#FF9F1A'>{countries.short_ru(i)}</b><br>старение: +{r.aging_per_year * 25:.1f} лет медианного возраста за 25 лет"
+                        f"<br>подразумеваемый эффект: <b>{r.effect:+.2f}</b> (от {r.low:+.2f} до {r.high:+.2f}) в год" for i, r in sc.iterrows()}
+            views_global.world_map(colors, infos, f"СЦЕНАРИЙ: ЭФФЕКТ СТАРЕНИЯ 2025→2050 · {aging.OUTCOMES[outcome][1]}",
+                                   [("хуже", "#FF4D4F"), ("лучше", "#26C281")], height=520)
+            st.caption("Это не прогноз, а арифметика «коэффициент × скорость старения». Интервалы включают ноль, если связь не значима.")
+        src_box([aging.MEDIAN_AGE, "wp:gdp_growth"], "регрессия рассчитана приложением")
+
+
+# ================================================================ ГОЛОД
+@st.cache_data(show_spinner=False)
+def hunger_history(version, years):
+    w = get_wide(version)
+    return pd.DataFrame({y: hunger.index(w, y)[0] for y in years})
+
+
+def page_hunger(version):
+    w = get_wide(version)
+    st.markdown("### Продовольственная уязвимость: где риск голода выше")
+    st.warning("Это индекс уязвимости (0–100), а не прогноз голода: открытых готовых рядов объявленных голодоморов (IPC/FEWS NET) в базе нет. "
+               "Индекс объединяет 10 факторов: недоедание детей, калории, бедность, доход, зависимость от сельского хозяйства, воду, засухи, "
+               "боевые потери, инфляцию, зависимость от помощи.")
+    ys = list(range(1995, 2023))
+    y = st.select_slider("Год", options=ys, value=2022, key="hg_year")
+    idx, contrib = hunger.index(w, y)
+    c = st.columns(4)
+    c[0].metric("Стран в оценке", len(idx))
+    c[1].metric("Самая уязвимая", f"{countries.short_ru(idx.idxmax())}: {idx.max():.0f}")
+    c[2].metric("Выше 60 баллов", int((idx > 60).sum()))
+    pop = get_pop_path(version)
+    hi = idx[idx > 60].index.intersection(pop.index)
+    c[3].metric("Население в странах выше 60", f"{pop.loc[hi, min(y, 2024)].sum() / 1e9:.2f} млрд" if len(hi) and min(y, 2024) in pop.columns else "н/д")
+    colors, infos = {}, {}
+    lo, hi_q = float(idx.quantile(.03)), float(idx.quantile(.97))
+    for i, v in idx.items():
+        colors[i] = globe.scale_color(float(v), lo, hi_q, "down")
+        top = contrib.loc[i].sort_values(ascending=False).head(3)
+        why = ", ".join(hunger.COMPONENTS[k][2] for k in top.index)
+        infos[i] = (f"<b style='color:#FF9F1A'>{countries.short_ru(i)}</b><br>уязвимость {y}: <b>{v:.0f}</b> из 100"
+                    f"<br><span style='color:#8B96A5'>главные факторы: {why}</span>")
+    views_global.world_map(colors, infos, f"ПРОДОВОЛЬСТВЕННАЯ УЯЗВИМОСТЬ · {y}", [("ниже", "#1e2634"), ("выше", "#FF3C3C")], height=560)
+    src_box(list(hunger.COMPONENTS), "индекс рассчитан приложением")
+    a, b = st.columns([2, 3])
+    with a:
+        st.markdown("**Рейтинг**")
+        top = idx.sort_values(ascending=False).head(25)
+        st.dataframe(pd.DataFrame({"Страна": [countries.short_ru(i) for i in top.index], "Индекс": top.values}), hide_index=True, height=520,
+                     column_config={"Индекс": st.column_config.ProgressColumn(format="%.0f", min_value=0, max_value=100)})
+    with b:
+        iso = st.selectbox("Страна подробно", idx.sort_values(ascending=False).index.tolist(), format_func=countries.short_ru, key="hg_iso")
+        row = contrib.loc[iso].dropna().sort_values()
+        fig = go.Figure(go.Bar(x=row.values, y=[hunger.COMPONENTS[k][2] for k in row.index], orientation="h", marker_color=C["down"]))
+        fig.update_layout(xaxis_title="Вклад в индекс, баллов")
+        st.markdown(f"**Из чего складывается уязвимость: {countries.short_ru(iso)} ({idx[iso]:.0f})**")
+        st.plotly_chart(style(fig, 360), width="stretch")
+    hist = hunger_history(version, tuple(range(1995, 2023, 3)))
+    sel = st.multiselect("Динамика индекса", hist.index.tolist(), default=[i for i in ("NGA", "YEM", "ETH", "IND", "RUS", "BRA") if i in hist.index],
+                         format_func=countries.short_ru, key="hg_hist")
+    fig = go.Figure()
+    for i, iso2 in enumerate(sel):
+        s = hist.loc[iso2].dropna()
+        fig.add_scatter(x=s.index, y=s.values, name=countries.short_ru(iso2), line=dict(color=PALETTE[i % len(PALETTE)]))
+    fig.update_layout(yaxis_title="Индекс уязвимости")
+    st.plotly_chart(style(fig, 340), width="stretch")
+    with st.expander("Можно ли верить индексу: проверка на истории", expanded=True):
+        v = hunger.validate(w)
+        if v.empty:
+            st.info("Недостаточно данных для проверки.")
+        else:
+            st.caption("Для каждого года-происхождения индекс строится БЕЗ показателя недоедания и сравнивается с недоеданием детей через 5 лет "
+                       "(корреляция рангов Спирмена). «Инерция» это тот же прогноз, но по недоеданию в год происхождения.")
+            st.dataframe(v.rename(columns={"origin": "Год", "n": "Стран", "rho_index": "ρ индекса", "rho_persistence": "ρ инерции",
+                                           "top_quartile_precision": "Точность верхнего квартиля"}), hide_index=True,
+                         column_config={"Точность верхнего квартиля": st.column_config.NumberColumn(format="percent"),
+                                        "ρ индекса": st.column_config.NumberColumn(format="%.2f"), "ρ инерции": st.column_config.NumberColumn(format="%.2f")})
+            st.caption(f"В среднем ρ индекса = {v['rho_index'].mean():.2f}, ρ инерции = {v['rho_persistence'].mean():.2f}. Индекс без самого "
+                       "недоедания уступает прямой инерции, поэтому служит для сравнения уязвимости, а не замены наблюдаемых данных.")
+        src_box([hunger.TARGET])
+    with st.expander("Что если: изменить веса факторов"):
+        wts = {}
+        cols = st.columns(2)
+        for n, (k, (wt, sign, lab)) in enumerate(hunger.COMPONENTS.items()):
+            wts[k] = cols[n % 2].slider(lab, 0.0, 0.4, float(wt), 0.01, key=f"hg_w_{k}")
+        orig = dict(hunger.COMPONENTS)
+        try:
+            for k in wts:
+                hunger.COMPONENTS[k] = (wts[k], orig[k][1], orig[k][2])
+            alt, _ = hunger.index(w, y)
+        finally:
+            hunger.COMPONENTS.clear(); hunger.COMPONENTS.update(orig)
+        d = pd.concat([idx.rename("a"), alt.rename("b")], axis=1).dropna()
+        d["shift"] = d["b"] - d["a"]
+        mv = d.reindex(d["shift"].abs().sort_values(ascending=False).index).head(10)
+        st.dataframe(pd.DataFrame({"Страна": [countries.short_ru(i) for i in mv.index], "Базовый индекс": mv["a"].values, "С новыми весами": mv["b"].values}),
+                     hide_index=True, column_config={"Базовый индекс": st.column_config.NumberColumn(format="%.1f"), "С новыми весами": st.column_config.NumberColumn(format="%.1f")})
+
+
+# ================================================================ КЛИМАТ
+def _trend_ci(s, n=30):
+    """Наклон МНК за последние n лет с 95% интервалом и поправкой на автокорреляцию остатков (эффективное число наблюдений)."""
+    s = s.dropna().tail(n)
+    x = s.index.to_numpy(float)
+    slope, icpt = np.polyfit(x, s.values, 1)
+    res = s.values - (icpt + slope * x)
+    r1 = float(np.corrcoef(res[:-1], res[1:])[0, 1]) if len(res) > 3 else 0.0
+    neff = max(len(s) * (1 - r1) / (1 + r1), 4) if r1 > 0 else len(s)
+    se = np.sqrt(res.var(ddof=2) / ((x - x.mean()) ** 2).sum() * len(s) / neff)
+    return slope, 1.96 * se
+
+
+def _read(name):
+    return pd.read_csv(panel_mod.SNAP / name)
+
+
+def page_climate(version):
+    w, avail = get_wide(version), get_avail(version)
+    st.markdown("### Климат и энергия")
+    tabs = st.tabs(["Планета", "Страны: выбросы и энергия"])
+    with tabs[0]:
+        c1, c2 = st.columns(2)
+        try:
+            t = _read("global_temp_annual.csv.gz")
+            t = t[t["Source"] == "GCAG"].sort_values("Year").set_index("Year")["Mean"]
+            fig = go.Figure(go.Bar(x=t.index, y=t.values, marker_color=[C["down"] if v > 0 else C["blue"] for v in t.values]))
+            fig.update_layout(yaxis_title="Аномалия температуры, °C (к 1951–1980)")
+            with c1:
+                st.markdown("**Глобальная температура**")
+                st.plotly_chart(style(fig, 340), width="stretch")
+                sl, ci = _trend_ci(t, 30)
+                st.caption(f"Тренд за последние 30 лет: {sl * 10:+.2f} ± {ci * 10:.2f} °C за десятилетие (95%, с поправкой на автокорреляцию).")
+                d = registry.SOURCES["temp"]
+                st.caption(f"📎 Источник: **{d['name']}**, {d['org']}: {d['url']} · лицензия: {d['license']}")
+        except Exception as exc:
+            c1.info(f"Нет данных по температуре: {exc}")
+        try:
+            a = _read("co2_ppm_annual.csv.gz").sort_values("Year").set_index("Year")["Mean"]
+            fig = go.Figure(go.Scatter(x=a.index, y=a.values, line=dict(color=C["accent"])))
+            fig.update_layout(yaxis_title="CO₂, ppm")
+            with c2:
+                st.markdown("**CO₂ в атмосфере (Мауна-Лоа)**")
+                st.plotly_chart(style(fig, 340), width="stretch")
+                sl, ci = _trend_ci(a, 20)
+                st.caption(f"Рост за последние 20 лет: {sl:+.2f} ± {ci:.2f} ppm в год (95%).")
+                d = registry.SOURCES["noaa_gml"]
+                st.caption(f"📎 Источник: **{d['name']}**, {d['org']}: {d['url']} · лицензия: {d['license']}")
+        except Exception as exc:
+            c2.info(f"Нет данных по CO₂: {exc}")
+        c3, c4 = st.columns(2)
+        try:
+            sl_df = _read("sea_level_csiro.csv.gz")
+            sl_df = sl_df.assign(Year=sl_df["Time"].astype(float).round().astype(int)).groupby("Year")["GMSL"].mean()
+            fig = go.Figure(go.Scatter(x=sl_df.index, y=sl_df.values, line=dict(color="#4DA3FF")))
+            fig.update_layout(yaxis_title="Уровень моря, мм (CSIRO)")
+            with c3:
+                st.markdown("**Уровень океана**")
+                st.plotly_chart(style(fig, 320), width="stretch")
+                sl, ci = _trend_ci(sl_df, 30)
+                st.caption(f"Тренд за последние 30 лет: {sl:+.1f} ± {ci:.1f} мм в год.")
+                d = registry.SOURCES["sea_level"]
+                st.caption(f"📎 Источник: **{d['name']}**, {d['org']}: {d['url']} · лицензия: {d['license']}")
+        except Exception as exc:
+            c3.info(f"Нет данных по уровню моря: {exc}")
+        try:
+            g = _read("glaciers.csv.gz").set_index("Year")["Mean cumulative mass balance"]
+            fig = go.Figure(go.Scatter(x=g.index, y=g.values, line=dict(color="#B38CFF")))
+            fig.update_layout(yaxis_title="Накопленный баланс массы, м в.э.")
+            with c4:
+                st.markdown("**Ледники (накопленная потеря массы)**")
+                st.plotly_chart(style(fig, 320), width="stretch")
+                d = registry.SOURCES["wgms"]
+                st.caption(f"📎 Источник: **{d['name']}**, {d['org']}: {d['url']} · лицензия: {d['license']}")
+        except Exception as exc:
+            c4.info(f"Нет данных по ледникам: {exc}")
+    with tabs[1]:
+        pool = avail[avail["key"].str.startswith(("co2:", "en:"))]
+        k = indicator_picker(pool, "cl_k", "co2:co2_per_capita")
+        m = gdata.meta()[k]
+        y = default_year(w, k)
+        value_map(gdata.cross_section(w, k, y), k, y, key_suffix="cl")
+        src_box([k])
+        iso = st.selectbox("Страна", country_options(w), index=country_options(w).index("CHN") if "CHN" in country_options(w) else 0,
+                           format_func=countries.short_ru, key="cl_iso")
+        s = gdata.series(w, k, iso)
+        if len(s) < 12:
+            return st.info("По этой стране слишком короткий ряд для прогноза.")
+        bt = run_backtest_cached(version, k, 10)
+        fc = forecast.forecast_series(s, bt, 10) if bt.mase else None
+        fig = go.Figure()
+        fig.add_scatter(x=s.index, y=s.values, name="Факт", line=dict(color="#E8ECF1"))
+        if fc is not None:
+            fig.add_scatter(x=fc["year"], y=fc["p90"], line=dict(width=0), showlegend=False)
+            fig.add_scatter(x=fc["year"], y=fc["p10"], fill="tonexty", fillcolor="rgba(255,159,26,0.2)", line=dict(width=0), name="P10–P90")
+            fig.add_scatter(x=fc["year"], y=fc["mean"], name="Прогноз приложения", line=dict(color=C["accent"]))
+        fig.update_layout(yaxis_title=f"{m['label']}, {m['unit']}")
+        st.plotly_chart(style(fig, 380), width="stretch")
+        if bt.mase:
+            sk = 1 - bt.mase[bt.best][-1] / bt.mase["naive"][-1]
+            st.caption(f"Метод: {forecast.LABELS[bt.best]}. Навык на 10 лет против «останется как сейчас»: {sk:+.0%} "
+                       f"(по {bt.n_series} рядам). Это экстраполяция тренда, она не учитывает будущую политику.")
+        src_box([k], "прогноз рассчитан приложением")
+
+
+# ================================================================ ИСТОЧНИКИ
+def page_sources(version):
+    w, avail = get_wide(version), get_avail(version)
+    st.markdown("### Источники данных и покрытие")
+    rows = [{"Источник": d["name"], "Организация": d["org"], "Ссылка": d["url"], "Лицензия": d["license"], "Примечание": d["note"],
+             "Показателей": int((avail["source"] == sid).sum())} for sid, d in registry.SOURCES.items()]
+    st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch", column_config={"Ссылка": st.column_config.LinkColumn()})
+    st.markdown("**Покрытие по группам показателей**")
+    g = avail.groupby("group").agg(Показателей=("key", "size"), Стран=("countries", "max"), Лет=("last", "max")).reset_index()
+    st.dataframe(g.rename(columns={"group": "Группа", "Лет": "Последний год"}), hide_index=True, width="stretch")
+    st.markdown("**Все показатели**")
+    q = st.text_input("Поиск по названию")
+    t = avail if not q else avail[avail["label"].str.contains(q, case=False) | avail["key"].str.contains(q, case=False)]
+    st.dataframe(t, hide_index=True, width="stretch", height=420)
+    st.caption("Правила честности: прогнозы ООН помечены как прогнозы; статистические прогнозы приложения сопровождаются проверкой на истории; "
+               "модели, у которых навыка нет, показываются с этой пометкой. Карты с индексами (уязвимость, риск кризиса) рассчитаны приложением.")
+    st.divider()
+    views_global.view_sources()
+
+
+# ================================================================ точка входа
+PAGES = ["ОБЗОР", "ИССЛЕДОВАТЕЛЬ", "СТРАНА", "ПУЗЫРЬКИ", "ДЕМОГРАФИЯ", "ГОЛОД", "КЛИМАТ", "КРИЗИСЫ", "ТОРГОВЛЯ", "МОРЕ", "КОНФЛИКТЫ",
+         "ГОРИЗОНТ", "ВАЛЮТЫ", "ИСТОЧНИКИ"]
+
+
+def render(version, bump, use_demo=False):
+    st.markdown("<div class='title'>МИР · ГЛОБАЛЬНЫЙ РЕЖИМ</div>", unsafe_allow_html=True)
+    st.caption("История и прогнозы по странам на открытых данных. Под каждой картой и графиком указан источник.")
+    page = st.radio("Раздел", PAGES, horizontal=True, label_visibility="collapsed", key="wm_page")
+    if page == "ОБЗОР":
+        page_overview(version)
+    elif page == "ИССЛЕДОВАТЕЛЬ":
+        page_explorer(version)
+    elif page == "СТРАНА":
+        page_country(version)
+    elif page == "ПУЗЫРЬКИ":
+        page_bubbles(version)
+    elif page == "ДЕМОГРАФИЯ":
+        page_demography(version)
+    elif page == "ГОЛОД":
+        page_hunger(version)
+    elif page == "КЛИМАТ":
+        page_climate(version)
+    elif page == "КРИЗИСЫ":
+        views_global.view_crises(version, bump, horizon_choice=True)
+    elif page == "ТОРГОВЛЯ":
+        views_global.view_trade(version, bump, use_demo)
+    elif page == "МОРЕ":
+        views_global.view_sea(version, bump)
+    elif page == "КОНФЛИКТЫ":
+        views_global.view_conflicts(version, bump, use_demo)
+    elif page == "ГОРИЗОНТ":
+        views_global.view_horizon(version)
+    elif page == "ВАЛЮТЫ":
+        views_global.view_fx()
+    else:
+        page_sources(version)
