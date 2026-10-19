@@ -1,41 +1,56 @@
 @echo off
 chcp 65001 >nul
 cd /d "%~dp0"
+title Trade Lab
 
-where python >nul 2>nul
-if errorlevel 1 (
-  echo Python не найден. Установи Python 3.10+ с python.org (галочка "Add to PATH"^) и запусти снова.
-  pause
-  exit /b 1
+rem --- ищем рабочий Python (лаунчер py, потом python; заглушка Microsoft Store не подходит)
+set "PY="
+py -3 -c "import sys" >nul 2>nul && set "PY=py -3"
+if not defined PY (
+  python -c "import sys" >nul 2>nul && set "PY=python"
 )
+if not defined PY goto :nopython
 
-if not exist .venv (
-  echo Создаю виртуальное окружение...
-  python -m venv .venv || goto :error
-)
+if exist .venv\Scripts\python.exe goto :venv_ok
+if exist .venv rmdir /s /q .venv
+echo Создаю виртуальное окружение...
+%PY% -m venv .venv
+if errorlevel 1 goto :error
+:venv_ok
 call .venv\Scripts\activate.bat
 
-if not exist .venv\.installed (
-  echo Ставлю зависимости (нужен интернет, один раз^)...
-  python -m pip install --upgrade pip >nul
-  python -m pip install -r requirements.txt || goto :error
-  python -m pip install -r requirements-optional.txt || echo Необязательный пакет ripser не установился: топология H1 будет недоступна, остальное работает.
-  echo ok> .venv\.installed
-)
+if exist .venv\.installed goto :installed
+echo Ставлю зависимости (нужен интернет, один раз, 2-5 минут)...
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
+if errorlevel 1 goto :error
+python -m pip install -r requirements-optional.txt
+if errorlevel 1 echo Необязательный пакет ripser не установился: топология H1 недоступна, остальное работает.
+echo ok> .venv\.installed
+:installed
 
-if not exist .env (
-  copy .env.example .env >nul
-  echo Создан файл .env. Открой его, вставь BCS_REFRESH_TOKEN и запусти start.bat снова.
-  notepad .env
-  pause
-  exit /b 0
-)
+rem --- токен нужен только для данных БКС; глобальный режим работает без него
+if not exist .env copy .env.example .env >nul
 
-echo Запускаю на http://localhost:8501
-python -m streamlit run app.py --server.address 127.0.0.1 --server.port 8501 --browser.gatherUsageStats false
+echo.
+echo Запускаю Trade Lab. Браузер откроется сам. Если нет, открой http://localhost:8501
+echo Чтобы остановить, закрой это окно.
+echo.
+start "" http://localhost:8501
+python -m streamlit run app.py --server.address 127.0.0.1 --server.port 8501 --server.headless true --browser.gatherUsageStats false
+echo.
+echo Приложение остановилось. Если это ошибка, скопируй текст выше и пришли мне.
+pause
 exit /b 0
 
+:nopython
+echo Python не найден (или это заглушка Microsoft Store).
+echo Установи Python 3.10+ с https://www.python.org/downloads/ и поставь галочку "Add python.exe to PATH".
+pause
+exit /b 1
+
 :error
-echo Что-то пошло не так, см. сообщения выше.
+echo.
+echo Что-то пошло не так, см. сообщения выше. Скопируй их и пришли мне.
 pause
 exit /b 1
