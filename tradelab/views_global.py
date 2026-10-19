@@ -36,7 +36,7 @@ def load_panel(source, version):
 @st.cache_resource(show_spinner=False)
 def get_models(source, version):
     p = load_panel(source, version)
-    models = {k: crisis.CrisisModel(p, k) for k in crisis.KINDS}
+    models = {k: crisis.CrisisModel(p, k) for k in crisis.available_kinds(p)}
     return models, crisis.FxModel(p)
 
 
@@ -82,7 +82,8 @@ def view_crises(version, bump):
 
     mode = st.radio("Режим", ["Машина времени (проверка на истории)", "Прогноз на ближайший год"], horizontal=True,
                     index=0 if source_key == "snapshot" else 1)
-    kind = st.selectbox("Вид кризиса", list(crisis.KINDS), format_func=lambda k: crisis.KINDS[k])
+    kinds = crisis.available_kinds(panel)
+    kind = st.selectbox("Вид кризиса", kinds, format_func=lambda k: crisis.KINDS[k])
     if kind == "recession":
         st.warning("Рецессии прогнозируются плохо: на реальной истории модель не лучше простого признака «рост ВВП "
                    "уже замедлился». Карту стоит читать как индикатор уязвимости, а не прогноз.")
@@ -144,7 +145,7 @@ def view_crises(version, bump):
         if st.button("Запустить проверку (1–3 минуты)"):
             rows = []
             last = panel_mod.WEO_LAST_ACTUAL if source_key == "snapshot" else None
-            for k in crisis.KINDS:
+            for k in kinds:
                 with st.spinner(f"Проверяю: {crisis.KINDS[k]}…"):
                     try:
                         met, _ = cached_eval(source_key, version, k, first, last)
@@ -226,7 +227,7 @@ def _country_detail(models, fxm, panel, kind):
     model = models[kind]
     c1, c2 = st.columns(2)
     with c1:
-        vals = {crisis.KINDS[k]: float(models[k].predict()[0]["prob"].get(iso, np.nan)) for k in crisis.KINDS}
+        vals = {crisis.KINDS[k]: float(models[k].predict()[0]["prob"].get(iso, np.nan)) for k in models}
         fig = go.Figure(go.Bar(x=list(vals), y=list(vals.values()), marker_color=C["accent"]))
         fig.update_layout(yaxis_tickformat=".0%")
         st.markdown("**Вероятность начала кризиса в следующем году**")
@@ -512,3 +513,446 @@ def view_sources():
     rows = [{"Файл": k, "Описание": v["desc"], "Строк": v["rows"], "Источник": v["source"]}
             for k, v in info.get("files", {}).items()]
     st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
+
+
+# ================================================================ МОРЕ: танкеры и проливы
+def _choke_markers(meta_rows, anomalies, col_label):
+    out = []
+    for name, (lat, lon, ru) in meta_rows.items():
+        a = anomalies.get(name)
+        if a is None:
+            out.append({"name": ru, "lat": lat, "lon": lon, "color": "#7a8697", "size": 6, "label": "данных PortWatch нет",
+                        "spark": []})
+            continue
+        ch = a["change"]
+        color = C["down"] if ch < -0.15 else (C["up"] if ch > 0.15 else C["accent"])
+        out.append({"name": ru, "lat": lat, "lon": lon, "color": color, "size": float(np.clip(5 + np.log1p(a["recent"]) * 1.2, 6, 14)),
+                    "label": f"{col_label}: {a['recent']:.0f}/сут, {ch:+.0%} к среднему за 90 дн.", "spark": a["spark"],
+                    "detail": f"{col_label} в среднем за 7 дней: <b>{a['recent']:.1f}</b> в сутки<br>среднее за 90 дней: {a['baseline']:.1f}<br>"
+                              f"отклонение: <b>{ch:+.0%}</b>"})
+    return out
+
+
+def view_sea(version, bump):
+    from . import maritime
+    st.caption("Движение судов: реальные агрегаты IMF PortWatch (проходы по проливам и каналам, AIS, без ключа), живые "
+               "позиции (Digitraffic, Балтика, без ключа; AISStream, бесплатный ключ) и условная модель маршрутов "
+               "танкеров для демонстрации. Открытых мировых AIS-данных в реальном времени без регистрации не существует.")
+    con = store.connect_macro()
+    sc = st.columns(3)
+    if sc[0].button("Загрузить PortWatch (проливы)"):
+        try:
+            with st.spinner("Запрашиваю IMF PortWatch…"):
+                meta = maritime.fetch_chokepoint_meta()
+                daily = maritime.fetch_chokepoint_daily(365)
+            cols = maritime.type_columns(daily)
+            st.session_state["pw_cols"] = cols
+            frames = []
+            names = dict(zip(meta["portid"], meta["portname"]))
+            for c in cols:
+                f = daily[["portid", "date", c]].dropna()
+                f = pd.DataFrame({"ts": f["date"], "key": f["portid"].map(names).fillna(f["portid"]) + "|" + c, "value": f[c].astype(float)})
+                frames.append(f)
+            store.upsert_series(con, "choke", pd.concat(frames))
+            lat_lon = meta.set_index("portname")[["lat", "lon"]].to_dict("index")
+            store.upsert_series(con, "choke_pos", pd.DataFrame(
+                [{"ts": pd.Timestamp("2000-01-01", tz="UTC"), "key": f"{n}|lat", "value": float(v["lat"])} for n, v in lat_lon.items()] +
+                [{"ts": pd.Timestamp("2000-01-01", tz="UTC"), "key": f"{n}|lon", "value": float(v["lon"])} for n, v in lat_lon.items()]))
+            st.success(f"Загружено проливов: {meta.shape[0]}, строк трафика: {len(daily)}")
+            bump()
+        except Exception as exc:
+            st.error(f"PortWatch: {exc}")
+    live = sc[1].button("Живые суда: Балтика (Digitraffic)")
+    with sc[2].expander("AISStream (бесплатный ключ, любая область)"):
+        key = st.text_input("Ключ AISStream", type="password")
+        area = st.selectbox("Область", ["Ормузский пролив", "Суэц и Красное море", "Сингапур и Малакка", "Ла-Манш", "Мексиканский залив"])
+        boxes = {"Ормузский пролив": (24.0, 54.0, 28.0, 58.0), "Суэц и Красное море": (12.0, 32.0, 31.0, 44.0),
+                 "Сингапур и Малакка": (0.5, 99.0, 6.0, 105.0), "Ла-Манш": (49.0, -2.0, 52.0, 3.0),
+                 "Мексиканский залив": (24.0, -98.0, 30.0, -88.0)}
+        if st.button("Собрать позиции (25 с)") and key:
+            try:
+                with st.spinner("Слушаю поток AISStream 25 секунд…"):
+                    df = maritime.collect_aisstream(key, boxes[area])
+                st.session_state["ais"] = df
+                st.success(f"Судов в области: {len(df)}")
+            except Exception as exc:
+                st.error(str(exc))
+    if live:
+        try:
+            with st.spinner("Запрашиваю Digitraffic…"):
+                st.session_state["ais"] = maritime.fetch_digitraffic()
+        except Exception as exc:
+            st.error(f"Digitraffic: {exc}")
+
+    series = store.load_series(con, "choke")
+    pos = store.load_series(con, "choke_pos")
+    cols = sorted({c.split("|")[1] for c in series.columns}) if len(series) else []
+    anomalies, meta_rows = {}, dict(maritime.CHOKEPOINTS)
+    tanker_col = next((c for c in cols if c.lower() == "n_tanker"), None)
+    label_cols = {c: c for c in cols}
+    if len(series) and tanker_col:
+        daily = series[[k for k in series.columns if k.endswith("|" + tanker_col)]]
+        daily.columns = [k.split("|")[0] for k in daily.columns]
+        rows = {}
+        for name in daily.columns:
+            s = daily[name].dropna()
+            if len(s) >= 45:
+                a, b = s.tail(7).mean(), s.tail(90).mean()
+                rows[name] = {"recent": a, "baseline": b, "change": (a / b - 1) if b > 0 else 0.0, "spark": s.tail(60).tolist()}
+        # сопоставляем названия PortWatch с нашим справочником координат и берём координаты из PortWatch для остальных
+        by_pw = {}
+        for pw_name in rows:
+            ref = next((k for k in maritime.CHOKEPOINTS if k.lower().replace(" strait", "") in pw_name.lower() or pw_name.lower() in k.lower()), None)
+            by_pw[pw_name] = ref
+        meta_rows = {}
+        for pw_name, a in rows.items():
+            ref = by_pw[pw_name]
+            if ref:
+                lat, lon, ru = maritime.CHOKEPOINTS[ref]
+            elif f"{pw_name}|lat" in pos.columns:
+                lat, lon, ru = float(pos[f"{pw_name}|lat"].dropna().iloc[-1]), float(pos[f"{pw_name}|lon"].dropna().iloc[-1]), pw_name
+            else:
+                continue
+            meta_rows[pw_name] = (lat, lon, ru)
+        anomalies = rows
+        st.caption(f"Реальные данные PortWatch: проливов {len(rows)}, тип судов «{tanker_col}».")
+    else:
+        st.info("Реальные данные по проливам не загружены: нажми «Загрузить PortWatch». Ниже на карте условная модель "
+                "(демо) и справочное положение проливов.")
+    markers = _choke_markers(meta_rows, anomalies, "танкеров")
+    ais = st.session_state.get("ais")
+    ship_pts = maritime.ships_from_ais(ais, "Танкер" if st.checkbox("Только танкеры", value=True) else None) if ais is not None and len(ais) else []
+    if ship_pts:
+        st.success(f"Показаны живые позиции судов: {len(ship_pts)} (Digitraffic/AISStream).")
+    demo_routes = maritime.demo_ships() if st.checkbox("Показать условные маршруты танкеров (демо)", value=not anomalies and not ship_pts) else []
+    m = st.columns(4)
+    m[0].metric("Проливов на карте", len(markers))
+    m[1].metric("Реальных данных", len(anomalies))
+    m[2].metric("Живых судов", len(ship_pts))
+    if anomalies:
+        worst = min(anomalies.items(), key=lambda kv: kv[1]["change"])
+        m[3].metric("Сильнее всего упал трафик", worst[0], f"{worst[1]['change']:+.0%}", delta_color="inverse")
+    _sea_map(markers, demo_routes, ship_pts)
+    if anomalies:
+        t = pd.DataFrame([{"Пролив": meta_rows[k][2], "Танкеров/сут (7д)": a["recent"], "Среднее 90д": a["baseline"],
+                           "Отклонение": a["change"], "Тренд": a["spark"]} for k, a in anomalies.items() if k in meta_rows]).sort_values("Отклонение")
+        st.dataframe(t, hide_index=True, width="stretch", height=380, column_config={
+            "Танкеров/сут (7д)": st.column_config.NumberColumn(format="%.1f"), "Среднее 90д": st.column_config.NumberColumn(format="%.1f"),
+            "Отклонение": st.column_config.NumberColumn(format="percent"), "Тренд": st.column_config.LineChartColumn("60 дней")})
+        st.caption("Данные PortWatch: оценки по AIS, обновляются еженедельно с задержкой в несколько дней, возможны ревизии. "
+                   "Падение трафика через пролив может означать конфликт, штормы, смену маршрутов или лаг публикации.")
+    if ais is not None and len(ais):
+        st.markdown("**Суда в выбранной области**")
+        show = ais.copy()
+        if "class" in show:
+            st.dataframe(show.groupby("class").size().rename("Судов").reset_index(), hide_index=True)
+        st.dataframe(show.head(300), hide_index=True, width="stretch", height=300)
+
+
+def _sea_map(markers, demo_routes, ship_pts):
+    html = globe.build([], [], {}, title="МОРЕ: ТАНКЕРЫ И ПРОЛИВЫ" + (" · ДЕМО-МАРШРУТЫ" if demo_routes else ""),
+                       legend=[("трафик выше нормы", C["up"]), ("в норме", C["accent"]), ("упал более чем на 15%", C["down"]),
+                               ("танкер (реальная позиция)", "#FF9F1A")],
+                       height=660, lon0=55.0, ships=demo_routes, ship_points=ship_pts, chokes=markers, mode="globe")
+    components.html(html, height=666)
+
+
+# ================================================================ КОНФЛИКТЫ
+def view_conflicts(version, bump, use_demo):
+    from . import conflicts
+    con = store.connect_events()
+    stored = store.load_ged(con)
+    has_real = len(stored) > 0
+    with st.expander("Загрузить события UCDP GED (реальные, без ключа)", expanded=not has_real):
+        st.caption("Файл с сайта Uppsala Conflict Data Program (события с гибелью людей, 1989+, с координатами). Если сайт недоступен "
+                   "из сети, скачай ZIP вручную и загрузи ниже; для API нужен бесплатный токен.")
+        c1, c2 = st.columns(2)
+        if c1.button("Скачать GED с ucdp.uu.se"):
+            try:
+                with st.spinner("Скачиваю и разбираю (десятки МБ)…"):
+                    ged = conflicts.fetch_ged()
+                st.success(f"События: {len(ged)}, сопоставлено со странами: {ged['iso3'].notna().mean():.0%}")
+                store.upsert_ged(con, ged)
+                bump()
+            except Exception as exc:
+                st.error(str(exc))
+        up = c2.file_uploader("…или CSV/ZIP GED", type=["csv", "zip"])
+        if up is not None:
+            try:
+                if up.name.endswith(".zip"):
+                    import io, zipfile
+                    with zipfile.ZipFile(io.BytesIO(up.read())) as zf:
+                        name = next(n for n in zf.namelist() if n.lower().endswith(".csv"))
+                        raw = pd.read_csv(zf.open(name), low_memory=False)
+                else:
+                    raw = pd.read_csv(up, low_memory=False)
+                ged = conflicts.parse_ged(raw)
+                store.upsert_ged(con, ged)
+                st.success(f"Импортировано {len(ged)} событий")
+                bump()
+            except Exception as exc:
+                st.error(str(exc))
+        token = st.text_input("Токен UCDP API (необязательно)", type="password")
+        if token and st.button("Загрузить через API (последние годы)"):
+            try:
+                ged = conflicts.fetch_ged_api(token, StartDate=f"{datetime.now().year - 2}-01-01")
+                store.upsert_ged(con, ged)
+                bump()
+            except Exception as exc:
+                st.error(str(exc))
+    if has_real:
+        ged = stored.assign(date=pd.to_datetime(stored["date"], errors="coerce"))
+        src = "UCDP GED (реальные события)"
+    else:
+        ged = conflicts.demo_events()
+        src = "ДЕМО (синтетика вокруг известных очагов, НЕ реальные события)"
+        st.warning("Показаны синтетические события вокруг известных очагов: чтобы увидеть реальные, загрузи UCDP GED выше.")
+    years = sorted(int(y) for y in ged["year"].dropna().unique())
+    c1, c2, c3 = st.columns([3, 2, 3])
+    yr = c1.select_slider("Период", options=years, value=(years[max(0, len(years) - 3)], years[-1]))
+    vtypes = c2.multiselect("Тип насилия", list(conflicts.VIOLENCE), default=list(conflicts.VIOLENCE), format_func=lambda k: conflicts.VIOLENCE[k])
+    cell = c3.select_slider("Детализация карты, градусов", options=[1.0, 2.0, 3.0, 5.0], value=2.0)
+    d = ged[(ged["year"] >= yr[0]) & (ged["year"] <= yr[1]) & (ged["type_of_violence"].isin(vtypes) | ged["type_of_violence"].isna())]
+    g = conflicts.grid(d, cell).head(160)
+    m = st.columns(4)
+    s = conflicts.summary(d, list(range(yr[0], yr[1] + 1)))
+    m[0].metric("Событий", f"{s['events']:,}")
+    m[1].metric("Погибших (лучшая оценка)", f"{s['deaths']:,.0f}")
+    m[2].metric("Из них гражданских", f"{s['civilians']:,.0f}")
+    m[3].metric("Стран", s["countries"])
+    ref = conflicts.reference_table()
+    layer = st.radio("Слой карты", ["События (ячейки)", "Справочник очагов (вручную)", "Оба"], horizontal=True)
+    pts = []
+    if layer != "Справочник очагов (вручную)":
+        for r in g.itertuples():
+            pts.append({"name": f"ячейка {r.lat:.0f}°, {r.lon:.0f}°", "lat": r.lat, "lon": r.lon, "deaths": float(r.deaths), "scale": 0.55,
+                        "label": f"погибших: <b>{r.deaths:,.0f}</b><br>событий: {r.events:,}"})
+    if layer != "События (ячейки)":
+        for r in ref.itertuples():
+            pts.append({"name": r.name, "lat": r.lat, "lon": r.lon, "deaths": 150.0 if r.type != "очаг напряжённости" else 20.0, "scale": 0.7,
+                        "label": f"<b>{r.type}</b>, с {r.since}<br>{r.note}",
+                        "detail": f"<b>{r.type}</b>, с {r.since} года<br>{r.note}<br><span style='color:#8B96A5'>справочник составлен вручную "
+                                  "по состоянию на 2025 год и может устареть; события берутся из UCDP</span>"})
+    html = globe.build([], [], {}, title=f"КОНФЛИКТЫ · {src}", legend=[("очаги насилия (размер = число погибших)", "#FF3C3C")],
+                       height=660, lon0=30.0, conflicts=pts, mode="globe")
+    components.html(html, height=666)
+    a, b = st.columns(2)
+    with a:
+        by_year = ged.groupby("year")["best"].sum()
+        fig = go.Figure(go.Bar(x=by_year.index, y=by_year.values, marker_color=C["down"]))
+        fig.update_layout(yaxis_title="Погибших в год")
+        st.markdown("**Погибшие по годам**")
+        st.plotly_chart(style(fig, 320), width="stretch")
+    with b:
+        top = d.dropna(subset=["conflict_name"]).groupby("conflict_name")["best"].sum().nlargest(12)
+        fig = go.Figure(go.Bar(x=top.values, y=top.index, orientation="h", marker_color=C["accent"]))
+        fig.update_yaxes(autorange="reversed")
+        st.markdown("**Самые смертоносные конфликты периода**")
+        st.plotly_chart(style(fig, 320), width="stretch")
+    cy = d.dropna(subset=["iso3"]).groupby("iso3")["best"].sum().nlargest(15)
+    st.dataframe(pd.DataFrame({"Страна": [countries.short_ru(i) for i in cy.index], "Погибших": cy.values}), hide_index=True, width="stretch")
+    # модель риска начала конфликта
+    with st.expander("Модель риска начала нового вооружённого конфликта (на данных UCDP и макро-панели)"):
+        if not has_real:
+            st.info("Нужны реальные события UCDP: загрузи их выше. На синтетике модель не запускается.")
+        else:
+            st.caption("Конфликт «начинается», когда в стране за год погибло ≥25 человек, а годом ранее меньше. Признаки: макро-панель, "
+                       "прошлые конфликты, доход, размер. Проверка вне выборки как у остальных кризисов.")
+            if st.button("Обучить и проверить"):
+                p0 = panel_mod.snapshot_panel() if not len(store.load_panel_long(store.connect_macro())) else panel_mod.from_long(
+                    store.load_panel_long(store.connect_macro()))
+                pc = panel_mod.with_conflicts(p0, conflicts.country_year(ged.assign(iso3=ged["iso3"])))
+                if "conflict" not in crisis.available_kinds(pc):
+                    st.warning("Недостаточно данных для меток.")
+                else:
+                    met, _ = crisis.evaluate(pc, "conflict", first_test_year=2000, last_year=None)
+                    st.json({"AUC ансамбля": round(met["ensemble"]["auc"], 3), "событий": met["events"], "наблюдений": met["obs"],
+                             "верхний дециль ловит": f"{met['ensemble']['top_decile_capture']:.0%}",
+                             "наивный (прошлые конфликты)": round(met.get("naive", {}).get("auc", float('nan')), 3)})
+    st.caption("Справочник очагов составлен вручную по общеизвестным данным на 2025 год: это ориентир, а не данные событий. "
+               "Источники событий: UCDP GED (без ключа), ACLED (бесплатная регистрация), GDELT (без ключа).")
+
+
+# ================================================================ ГОРИЗОНТ: 5-10 лет
+@st.cache_resource(show_spinner=False)
+def eq_bond_model(years):
+    from . import longrun
+    return longrun.EquityBondModel(years)
+
+
+@st.cache_data(show_spinner=False)
+def cached_growth_backtest(source, version, horizon):
+    from . import longrun
+    return longrun.growth_backtest(load_panel(source, version), horizon, first_origin=1995)
+
+
+@st.cache_data(show_spinner=False)
+def cached_growth_forecast(source, version, horizon):
+    from . import longrun
+    return longrun.growth_forecast(load_panel(source, version), horizon)
+
+
+def view_horizon(version):
+    from . import longrun
+    st.caption("Оценки на 5–10 лет с явной неопределённостью и честной проверкой вне выборки. Это не предсказание будущего: "
+               "здесь видно, что поддаётся оценке (доходность облигаций по ставке), что слабо (акции по CAPE) и что почти не поддаётся "
+               "(рост стран на 10 лет сверх мирового среднего).")
+    with st.expander("Что можно и нельзя предсказать на 5–10 лет (проверено на реальной истории)", expanded=True):
+        st.markdown(
+            "- **Облигации США, 10 лет**: номинальная доходность определяется стартовой ставкой, R² вне выборки около 0.89.\n"
+            "- **Акции США, 10 лет** по CAPE: R² вне выборки около 0.08 (слабо); оценка сжимается к историческому среднему, "
+            "интервалы расширены по реальным ошибкам.\n"
+            "- **Рост ВВП стран**: на 5 лет модель лучше наивного «как последние 5 лет» (на 20%), но от мирового среднего почти не "
+            "отличается; на 10 лет сверх мирового среднего навыка нет.\n"
+            "- **Не предсказываются**: кризисы, войны, технологические сдвиги, рецессии заранее. Для них есть только сценарии.")
+    tabs = st.tabs(["Рынки", "Портфель", "Рост стран", "Госдолг"])
+    with tabs[0]:
+        yrs = st.radio("Горизонт", [10, 5], horizontal=True)
+        with st.spinner("Обучаю и проверяю модель на истории с 1871 года…"):
+            m = eq_bond_model(yrs)
+        c1, c2, c3 = st.columns(3)
+        infl = c1.slider("Ожидаемая инфляция, % в год", 0.0, 8.0, 2.7, 0.1) / 100
+        cape_now, last, now = m.current_cape(infl)
+        cape = c2.slider("CAPE (по умолчанию оценка на сегодня)", 8.0, 60.0, float(round(cape_now, 1)), 0.5)
+        y_def = float(pd.read_csv(panel_mod.SNAP / "us10y.csv.gz")["Rate"].iloc[-1])
+        yld = c3.slider("Доходность US 10Y, %", 0.5, 12.0, y_def, 0.05) / 100
+        est = m.estimate(cape, yld, infl)
+        k = st.columns(4)
+        k[0].metric(f"Акции США, реально, {yrs} л", pct(est["equity"]["mean"], 1), f"интервал {est['equity']['p10']:.1%} … {est['equity']['p90']:.1%}", delta_color="off")
+        k[1].metric("Сырая CAPE-модель (без сжатия)", pct(est["equity"]["raw"], 1))
+        k[2].metric(f"Облигации US 10Y, номинально", pct(est["bond"]["nominal"], 1), f"реально {est['bond']['mean']:.1%}", delta_color="off")
+        k[3].metric("Историческое среднее акций (реально)", pct(est["hist_equity"], 1))
+        st.warning(f"CAPE на сегодня оценён грубо: данные Шиллера в снимке заканчиваются {last:%m.%Y}, цена S&P 500 известна до {now:%m.%Y}; "
+                   "оценка пересчитывает последний CAPE на движение цены с поправкой на рост прибыли и инфляцию. Передвинь ползунок, "
+                   "если знаешь точное значение.")
+        ev = m.evaluate()
+        a, b = st.columns(2)
+        for col, key, title, color in ((a, "equity", "Акции: прогноз по CAPE против факта", C["accent"]), (b, "bond", "Облигации: прогноз по ставке против факта", C["blue"])):
+            df, met = ev[key]
+            with col:
+                fig = go.Figure()
+                fig.add_scatter(x=df["pred"], y=df["actual"], mode="markers", marker=dict(color=color, size=6, opacity=.7), name="даты проверки")
+                lim = [float(min(df["pred"].min(), df["actual"].min())), float(max(df["pred"].max(), df["actual"].max()))]
+                fig.add_scatter(x=lim, y=lim, mode="lines", line=dict(color="#888", dash="dash"), name="идеал")
+                fig.update_layout(xaxis_title="Прогноз (CAGR за горизонт)", yaxis_title="Фактическая доходность", xaxis_tickformat=".0%", yaxis_tickformat=".0%")
+                st.markdown(f"**{title}**")
+                st.plotly_chart(style(fig, 330), width="stretch")
+                st.caption(f"Проверка вне выборки с 1920 г.: точек {met['n']}, R² {met['oos_r2']:.2f}, корреляция {met['corr']:.2f}, "
+                           f"вес модели при сжатии {met['shrink_weight']:.0%}, σ ошибки {met['oos_sigma']:.1%}")
+    with tabs[1]:
+        hz = st.radio("Горизонт, лет", [5, 10, 20], horizontal=True, index=1, key="pf_h")
+        m = eq_bond_model(10 if hz != 5 else 5)
+        infl = st.slider("Ожидаемая инфляция, % в год", 0.0, 8.0, 2.7, 0.1, key="pf_infl") / 100
+        est = m.estimate(infl=infl)
+        c1, c2, c3 = st.columns(3)
+        start = c1.number_input("Стартовый капитал, ₽ (в сегодняшних ценах)", 10_000.0, 1e9, 1_000_000.0, 50_000.0)
+        contrib = c2.number_input("Ежегодный взнос, ₽ (в сегодняшних ценах)", 0.0, 1e8, 100_000.0, 10_000.0)
+        target = c3.number_input("Цель к концу срока, ₽", 0.0, 1e10, 3_000_000.0, 100_000.0)
+        w1, w2, w3, w4 = st.columns(4)
+        weights = {"equity": w1.slider("Акции США, %", 0, 100, 60), "bond": w2.slider("Облигации США, %", 0, 100, 30),
+                   "cash": w3.slider("Деньги, %", 0, 100, 5), "gold": w4.slider("Золото, %", 0, 100, 5)}
+        if sum(weights.values()) == 0:
+            return st.warning("Задай ненулевые веса")
+        a1, a2 = st.columns(2)
+        cash_real = a1.slider("Реальная доходность денег (допущение), %", -2.0, 3.0, 0.0, 0.1) / 100
+        gold_real = a2.slider("Реальная доходность золота (допущение), %", -3.0, 5.0, 0.0, 0.1) / 100
+        scen = st.selectbox("Сценарий", list(longrun.SCENARIOS))
+        hist = m.annual_history()
+        mu = {"equity": est["equity"]["mean"], "bond": est["bond"]["mean"]}
+        wealth, _ = longrun.simulate_portfolio(hist, mu, weights, years=hz, n=4000, start=start, contribution=contrib,
+                                               cash_real=cash_real, gold_real=gold_real, shift=longrun.SCENARIOS[scen])
+        sm = longrun.summarize_wealth(wealth, start, contrib, target)
+        k = st.columns(5)
+        k[0].metric("Медиана (реально)", f"{sm['p50']:,.0f} ₽")
+        k[1].metric("Плохой исход (P5)", f"{sm['p5']:,.0f} ₽")
+        k[2].metric("Хороший исход (P95)", f"{sm['p95']:,.0f} ₽")
+        k[3].metric("Вероятность реального убытка", pct(sm["prob_real_loss"], 0), f"вложено {sm['invested']:,.0f} ₽", delta_color="off")
+        k[4].metric("Вероятность достичь цели", pct(sm.get("prob_target", float("nan")), 0))
+        t = np.arange(wealth.shape[1])
+        q = np.percentile(wealth, [5, 25, 50, 75, 95], axis=0)
+        fig = go.Figure()
+        fig.add_scatter(mode="lines", x=t, y=q[4], line=dict(width=0), showlegend=False)
+        fig.add_scatter(mode="lines", x=t, y=q[0], fill="tonexty", fillcolor="rgba(255,159,26,0.15)", line=dict(width=0), name="5–95%")
+        fig.add_scatter(mode="lines", x=t, y=q[3], line=dict(width=0), showlegend=False)
+        fig.add_scatter(mode="lines", x=t, y=q[1], fill="tonexty", fillcolor="rgba(255,159,26,0.30)", line=dict(width=0), name="25–75%")
+        fig.add_scatter(mode="lines", x=t, y=q[2], line=dict(color=C["accent"], width=2), name="Медиана")
+        if target:
+            fig.add_hline(y=target, line=dict(color=C["up"], dash="dash"), annotation_text="цель")
+        fig.update_layout(xaxis_title="Годы", yaxis_title="Капитал в сегодняшних ценах, ₽")
+        st.plotly_chart(style(fig, 420), width="stretch")
+        rows = []
+        for name, shift in longrun.SCENARIOS.items():
+            w_, _ = longrun.simulate_portfolio(hist, mu, weights, years=hz, n=1500, start=start, contribution=contrib,
+                                               cash_real=cash_real, gold_real=gold_real, shift=shift, seed=1)
+            s_ = longrun.summarize_wealth(w_, start, contrib, target)
+            rows.append({"Сценарий": name, "Медиана": s_["p50"], "P5": s_["p5"], "Убыток": s_["prob_real_loss"], "Цель": s_.get("prob_target")})
+        st.markdown("**Сравнение сценариев** (поправки к реальным доходностям: стагфляция −3 п.п. акции, −2.5 облигации и т.д.)")
+        st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch", column_config={
+            "Медиана": st.column_config.NumberColumn(format="localized"), "P5": st.column_config.NumberColumn(format="localized"),
+            "Убыток": st.column_config.NumberColumn(format="percent"), "Цель": st.column_config.NumberColumn(format="percent")})
+        st.caption("Модель: средние доходности акций и облигаций США берутся из CAPE- и ставка-моделей, форма распределения и связь "
+                   "акций с облигациями из реальной истории с 1871 года (блочный бутстреп по 3 года). Деньги и золото это допущения. "
+                   "Реальная доходность считается в долларовых активах и не учитывает курс рубля, налоги и комиссии.")
+    with tabs[2]:
+        source = "snapshot" if not len(store.load_panel_long(store.connect_macro())) else "live"
+        hz = st.radio("Горизонт, лет", [5, 10], horizontal=True, key="g_h")
+        with st.spinner("Проверяю модель роста на истории…"):
+            met, r = cached_growth_backtest(source, version, hz)
+        c = st.columns(4)
+        c[0].metric("Ошибка модели (MAE, п.п.)", f"{met['mae_model']:.2f}")
+        c[1].metric("«Как последние 5 лет»", f"{met['mae_naive_past']:.2f}", f"модель лучше на {met['skill_vs_naive']:.0%}", delta_color="off")
+        c[2].metric("«Мировое среднее»", f"{met['mae_world_mean']:.2f}", f"навык {met['skill_vs_world']:+.0%}", delta_color="off")
+        c[3].metric("Корреляция прогноза с фактом", f"{met['corr']:.2f}")
+        if met["skill_vs_world"] < 0.05:
+            st.warning("Сверх мирового среднего модель почти ничего не добавляет: долгосрочный рост отдельных стран плохо предсказуем.")
+        fc, year = cached_growth_forecast(source, version, hz)
+        st.caption(f"Прогноз от {year} года: средний годовой рост реального ВВП на следующие {hz} лет. Макро в снимке до 2013 г., "
+                   "для актуального прогноза загрузи живые данные на вкладке КРИЗИСЫ.")
+        scale = max(float(fc["growth"].quantile(0.95)), 3.0)
+        colors = {i: globe.heat(float(v), scale) for i, v in fc["growth"].items()}
+        infos = {i: f"<b style='color:#FF9F1A'>{countries.short_ru(i)}</b><br>рост {r_['growth']:.1f}% в год ({r_['p10']:.1f} … {r_['p90']:.1f})"
+                 for i, r_ in fc.iterrows()}
+        world_map(colors, infos, f"РОСТ ВВП НА {hz} ЛЕТ (ОТ {year} Г.)", [("медленнее", "#1e2634"), ("быстрее", "#FF3C3C")], height=520)
+        tab = fc.assign(Страна=[countries.short_ru(i) for i in fc.index]).sort_values("growth", ascending=False)
+        st.dataframe(tab[["Страна", "growth", "p10", "p90"]], hide_index=True, width="stretch", height=340, column_config={
+            "growth": st.column_config.NumberColumn("Рост, % в год", format="%.1f"), "p10": st.column_config.NumberColumn("P10", format="%.1f"),
+            "p90": st.column_config.NumberColumn("P90", format="%.1f")})
+    with tabs[3]:
+        source = "snapshot" if not len(store.load_panel_long(store.connect_macro())) else "live"
+        p = load_panel(source, version)
+        pool = [i for i in p.index.get_level_values("iso3").unique() if "gov_debt" in p and p.loc[i, "gov_debt"].notna().any()]
+        iso = st.selectbox("Страна", sorted(pool, key=countries.short_ru), format_func=countries.short_ru,
+                           index=sorted(pool, key=countries.short_ru).index("USA") if "USA" in pool else 0)
+        g = p.loc[iso]
+        d0 = float(g["gov_debt"].dropna().iloc[-1])
+        ylast = int(g["gov_debt"].dropna().index[-1])
+        g10 = float(g["gdp_growth"].dropna().tail(10).mean()) if "gdp_growth" in g and g["gdp_growth"].notna().any() else 2.0
+        sd = float(g["gdp_growth"].dropna().tail(20).std()) if "gdp_growth" in g and g["gdp_growth"].notna().sum() > 5 else 2.5
+        i5 = float(g["inflation"].dropna().tail(5).mean()) if "inflation" in g and g["inflation"].notna().any() else 3.0
+        st.caption(f"Исходные данные: долг {d0:.0f}% ВВП на {ylast} год; средний рост за 10 лет {g10:.1f}%, инфляция за 5 лет {i5:.1f}%. "
+                   + ("Снимок до 2013 года: загрузи живые данные для актуальных значений." if source == "snapshot" else ""))
+        c1, c2, c3, c4 = st.columns(4)
+        gm = c1.slider("Реальный рост, % в год", -2.0, 8.0, float(np.clip(g10, -2, 8)), 0.1)
+        pi = c2.slider("Инфляция, % в год", 0.0, 30.0, float(np.clip(i5, 0, 30)), 0.1)
+        rn = c3.slider("Номинальная ставка по долгу, %", 0.0, 30.0, float(np.clip(pi + 1.5, 0, 30)), 0.1)
+        pb = c4.slider("Первичный баланс, % ВВП (плюс = профицит)", -10.0, 8.0, 0.0, 0.1)
+        years = st.radio("Горизонт, лет", [5, 10], horizontal=True, key="debt_h", index=1)
+        paths = longrun.debt_paths(d0, gm, pi, rn, pb, years=years, n=4000, g_sd=max(sd, 1.0), r_sd=1.0, pb_sd=1.0)
+        star = longrun.stabilizing_balance(d0, gm, pi, rn)
+        t = np.arange(years + 1)
+        q = np.percentile(paths, [5, 25, 50, 75, 95], axis=0)
+        fig = go.Figure()
+        fig.add_scatter(mode="lines", x=t, y=q[4], line=dict(width=0), showlegend=False)
+        fig.add_scatter(mode="lines", x=t, y=q[0], fill="tonexty", fillcolor="rgba(255,77,79,0.15)", line=dict(width=0), name="5–95%")
+        fig.add_scatter(mode="lines", x=t, y=q[3], line=dict(width=0), showlegend=False)
+        fig.add_scatter(mode="lines", x=t, y=q[1], fill="tonexty", fillcolor="rgba(255,77,79,0.30)", line=dict(width=0), name="25–75%")
+        fig.add_scatter(mode="lines", x=t, y=q[2], line=dict(color=C["down"], width=2), name="Медиана")
+        fig.update_layout(xaxis_title="Годы", yaxis_title="Долг, % ВВП")
+        st.plotly_chart(style(fig, 380), width="stretch")
+        k = st.columns(4)
+        k[0].metric("Долг через горизонт, медиана", f"{q[2][-1]:.0f}% ВВП", f"{q[2][-1] - d0:+.0f} п.п.", delta_color="inverse")
+        k[1].metric("Стабилизирующий первичный баланс", f"{star:+.1f}% ВВП", f"сейчас {pb:+.1f}", delta_color="off")
+        k[2].metric("Вероятность долга выше 100% ВВП", pct(float((paths[:, -1] > 100).mean()), 0))
+        k[3].metric("Вероятность роста долга", pct(float((paths[:, -1] > d0).mean()), 0))
+        st.caption("Динамика долга: d' = d(1+r)/((1+g)(1+π)) − pb со случайными шоками роста (по истории страны), ставки и баланса. "
+                   "Это учебная модель устойчивости долга, а не прогноз: она не учитывает дефолты, реструктуризации и смену политики.")

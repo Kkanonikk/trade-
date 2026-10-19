@@ -199,6 +199,22 @@ def fetch_worldbank(indicator, countries=None):
     return parse_worldbank(payload)
 
 
+def _head(url):
+    import requests
+    r = requests.head(url, headers={"User-Agent": "TradeLab"}, timeout=30, allow_redirects=True)
+    if r.status_code != 200:
+        raise SourceError(f"{url}: HTTP {r.status_code}")
+    return int(r.headers.get("Content-Length", 0))
+
+
+def _wb_probe():
+    payload = get("https://api.worldbank.org/v2/country/all/indicator/FP.CPI.TOTL.ZG",
+                  params={"format": "json", "per_page": 5, "date": "2022"}, as_json=True)
+    if not isinstance(payload, list) or len(payload) < 2 or not payload[1]:
+        raise SourceError("World Bank: пустой ответ")
+    return payload[1]
+
+
 def probe_all():
     """Диагностика: минимальный запрос к каждому источнику. Возвращает [(источник, ok, сообщение)]."""
     checks = [
@@ -212,6 +228,19 @@ def probe_all():
             "https://api.worldbank.org/v2/country/USA/indicator/NY.GDP.MKTP.KD.ZG",
             params={"format": "json", "per_page": 5}, as_json=True)))),
         ("SEC EDGAR (отчётность США)", lambda: len(get("https://www.sec.gov/files/company_tickers.json", as_json=True))),
+        ("IMF PortWatch (проливы, танкеры)", lambda: len(get(
+            "https://services9.arcgis.com/weJ1QsnbMYJlCHdG/ArcGIS/rest/services/PortWatch_chokepoints_database/FeatureServer/0/query",
+            params={"where": "1=1", "outFields": "*", "f": "json", "resultRecordCount": 3}, as_json=True)["features"])),
+        ("Digitraffic (живые суда, Балтика)", lambda: len(get(
+            "https://meri.digitraffic.fi/api/ais/v1/locations",
+            params={"from": int((datetime.now(timezone.utc) - timedelta(minutes=2)).timestamp() * 1000)},
+            headers={"Digitraffic-User": "TradeLab"}, as_json=True)["features"])),
+        ("UCDP GED (события конфликтов)", lambda: _head("https://ucdp.uu.se/downloads/ged/ged251-csv.zip")),
+        ("UN Comtrade (торговля, preview)", lambda: len(get("https://comtradeapi.un.org/public/v1/preview/C/A/HS",
+            params={"reportercode": 842, "flowCode": "X", "period": 2022, "cmdCode": "TOTAL", "partnerCode": 156},
+            as_json=True)["data"])),
+        ("World Bank API: панель стран", lambda: len(_wb_probe())),
+        ("IMF DataMapper (WEO)", lambda: len(get("https://www.imf.org/external/datamapper/api/v1/NGDP_RPCH/USA", as_json=True)["values"])),
     ]
     out = []
     for name, fn in checks:

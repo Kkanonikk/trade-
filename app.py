@@ -156,10 +156,11 @@ if len(ST):
 R_all = risk.returns_frame(frames) if len(frames) >= 2 else None
 weights, weights_fallback = (pick_weights(list(R_all.columns)) if R_all is not None else ({}, False))
 
-tabs = st.tabs(["ОБЗОР", "МИР", "КРИЗИСЫ", "ВАЛЮТЫ", "ТОРГОВЛЯ", "СТРУКТУРА", "МАКРО", "ОТЧЁТНОСТЬ", "ГРАФИК", "РИСК",
-                "ФАКТОРЫ", "ОПТИМИЗАТОР", "СТРАТЕГИИ", "МОДЕЛИ", "СКАНЕР", "АВТОТОРГОВЛЯ", "ДАННЫЕ", "ИСТОЧНИКИ"])
-(tab_ov, tab_world, tab_crisis, tab_fx, tab_trade, tab_struct, tab_macro, tab_fund, tab_chart, tab_risk,
- tab_factors, tab_opt, tab_strat, tab_models, tab_scan, tab_auto, tab_data, tab_sources) = tabs
+tabs = st.tabs(["ОБЗОР", "МИР", "МОРЕ", "КОНФЛИКТЫ", "ГОРИЗОНТ", "КРИЗИСЫ", "ВАЛЮТЫ", "ТОРГОВЛЯ", "СТРУКТУРА", "МАКРО",
+                "ОТЧЁТНОСТЬ", "ГРАФИК", "РИСК", "ФАКТОРЫ", "ОПТИМИЗАТОР", "СТРАТЕГИИ", "МОДЕЛИ", "СКАНЕР", "АВТОТОРГОВЛЯ",
+                "ДАННЫЕ", "ИСТОЧНИКИ"])
+(tab_ov, tab_world, tab_sea, tab_conf, tab_horizon, tab_crisis, tab_fx, tab_trade, tab_struct, tab_macro, tab_fund,
+ tab_chart, tab_risk, tab_factors, tab_opt, tab_strat, tab_models, tab_scan, tab_auto, tab_data, tab_sources) = tabs
 limits_ss = st.session_state.setdefault("limits", compliance.Limits())
 
 # ---------------------------------------------------------------- ОБЗОР
@@ -202,6 +203,15 @@ with tab_ov:
 # ---------------------------------------------------------------- МИР, СТРУКТУРА, МАКРО, ОТЧЁТНОСТЬ
 with tab_world:
     views.view_world(world, use_demo)
+
+with tab_sea:
+    views_global.view_sea(VERSION, bump)
+
+with tab_conf:
+    views_global.view_conflicts(VERSION, bump, use_demo)
+
+with tab_horizon:
+    views_global.view_horizon(VERSION)
 
 with tab_crisis:
     views_global.view_crises(VERSION, bump)

@@ -8,7 +8,7 @@ import plotly.graph_objects as go
 import streamlit as st
 import streamlit.components.v1 as components
 
-from . import fundamentals, globe, markets, optimize, risk, store, structure, worlddata
+from . import countries, fundamentals, globe, indicators, markets, optimize, panel as panel_mod, risk, store, structure, worlddata
 from .ui import C, PALETTE, pct, style
 
 
@@ -27,6 +27,53 @@ def _empty(msg="Нет данных. Включи демо-режим слева
 
 
 # ================================================================ МИР
+@st.cache_data(show_spinner=False)
+def _macro_latest():
+    p = panel_mod.snapshot_panel()
+    out = {}
+    for iso, g in p.groupby(level="iso3"):
+        row = {}
+        for col in ("inflation", "gdp_growth", "gdp_usd", "population", "unemployment", "gov_debt", "current_account"):
+            if col in g:
+                v = g[col].dropna()
+                if len(v):
+                    row[col] = (float(v.iloc[-1]), int(v.index.get_level_values("year")[-1]))
+        out[iso] = row
+    return out
+
+
+def _country_info(world, chg):
+    """Подсказка по каждой стране: макро (последние данные снимка), ставка ЦБ, курс и рынок, если есть."""
+    macro = _macro_latest()
+    rates = world["rates"]
+    rate_by_iso = {iso: float(rates[name].dropna().iloc[-1]) for name, (_, iso) in markets.POLICY_RATES.items()
+                   if name in rates.columns and rates[name].notna().any()}
+    market_by_iso = {markets.MARKETS[n][0]: n for n in chg.index if n in markets.MARKETS}
+    info = {}
+    for iso in countries.table().index:
+        m = macro.get(iso, {})
+        lines = [f"<b style='color:#FF9F1A'>{countries.short_ru(iso)}</b>"]
+        if "gdp_usd" in m:
+            lines.append(f"ВВП {m['gdp_usd'][0]:,.0f} млрд USD ({m['gdp_usd'][1]})")
+        if "gdp_growth" in m:
+            lines.append(f"рост ВВП {m['gdp_growth'][0]:+.1f}% ({m['gdp_growth'][1]})")
+        if "inflation" in m:
+            lines.append(f"инфляция {m['inflation'][0]:.1f}% ({m['inflation'][1]})")
+        if "unemployment" in m:
+            lines.append(f"безработица {m['unemployment'][0]:.1f}%")
+        if "gov_debt" in m:
+            lines.append(f"госдолг {m['gov_debt'][0]:.0f}% ВВП ({m['gov_debt'][1]})")
+        if "population" in m:
+            lines.append(f"население {m['population'][0]:,.1f} млн")
+        if iso in rate_by_iso:
+            lines.append(f"ставка ЦБ {rate_by_iso[iso]:.2f}%")
+        if iso in market_by_iso:
+            n = market_by_iso[iso]
+            lines.append(f"<span style='color:#26C281'>{n}: 1д {chg.loc[n, '1д']:+.2%}, 1м {chg.loc[n, '1м']:+.2%}</span>")
+        info[iso] = "<br>".join(lines)
+    return info
+
+
 def view_world(world, is_demo):
     idx = world["index"]
     if idx.empty or len(idx.columns) < 3:
@@ -45,11 +92,26 @@ def view_world(world, is_demo):
     names = [n for n in idx.columns if n in markets.MARKETS]
     mk = []
     for n in names:
-        iso, _, _, city, lat, lon, tz, *_ = markets.MARKETS[n]
+        iso, _, _, city, lat, lon, tz, op, cl = markets.MARKETS[n]
+        ser = idx[n].dropna()
         d1 = float(chg.loc[n, "1д"]) if n in chg.index else float("nan")
+        vol20 = float(ser.pct_change().tail(20).std() * np.sqrt(252))
+        rsi14 = float(indicators.rsi(ser).iloc[-1])
+        hi, lo = float(ser.tail(252).max()), float(ser.tail(252).min())
+        pos52 = (ser.iloc[-1] - lo) / (hi - lo) if hi > lo else float("nan")
+        local = status[n][1]
+        mins = (local.hour * 60 + local.minute - (op[0] * 60 + op[1])) / ((cl[0] * 60 + cl[1]) - (op[0] * 60 + op[1]))
+        session = f"{max(0, min(1, mins)):.0%} сессии" if status[n][0] else "вне сессии"
+        detail = (f"<b>Уровень</b> {ser.iloc[-1]:,.2f}<br>1д {d1:+.2%} · 5д {chg.loc[n, '5д']:+.2%}<br>"
+                  f"1м {chg.loc[n, '1м']:+.2%} · с начала года {chg.loc[n, 'С начала года']:+.2%}<br>"
+                  f"волатильность 20д: {vol20:.0%}<br>RSI(14): {rsi14:.0f}<br>"
+                  f"позиция в 52-нед. диапазоне: {pos52:.0%}<br>местное время {local:%H:%M} · {session}<br>"
+                  f"часы торгов {op[0]:02d}:{op[1]:02d}–{cl[0]:02d}:{cl[1]:02d}")
         mk.append({"name": n, "iso": iso, "city": city, "lat": lat, "lon": lon,
                    "color": globe.diverging(d1, 0.03) or "#7a8697", "open": bool(status[n][0]),
-                   "label": f"{idx[n].iloc[-1]:,.2f} · 1д {d1:+.2%} · 1м {chg.loc[n, '1м']:+.2%}"})
+                   "label": f"{ser.iloc[-1]:,.2f} · 1д {d1:+.2%} · 1м {chg.loc[n, '1м']:+.2%}",
+                   "spark": (ser.tail(60) / ser.tail(60).iloc[0]).round(4).tolist(),
+                   "hours": f"{op[0]:02d}:{op[1]:02d}–{cl[0]:02d}:{cl[1]:02d}", "detail": detail})
 
     colors, legend = {}, []
     if paint.startswith("Изменение"):
@@ -97,7 +159,7 @@ def view_world(world, is_demo):
                              "label": f"{a} ↔ {b}"})
             legend.append(("связь: корреляция доходностей", C["blue"]))
     title = ("ДЕМО · СИНТЕТИЧЕСКИЕ ДАННЫЕ · " if is_demo else "") + paint.upper()
-    html = globe.build(mk, arcs, colors, title=title, legend=legend, height=700)
+    html = globe.build(mk, arcs, colors, title=title, legend=legend, height=700, info=_country_info(world, chg))
     components.html(html, height=705)
     if flow.startswith("Кто"):
         st.caption("Поток A → B: вчерашняя доходность A предсказывает сегодняшнюю доходность B лучше, чем наоборот "

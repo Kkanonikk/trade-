@@ -19,11 +19,21 @@ from sklearn.metrics import average_precision_score, brier_score_loss, roc_auc_s
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
 
-KINDS = {"currency": "Валютный кризис", "inflation": "Инфляционный кризис", "recession": "Рецессия"}
+KINDS = {"currency": "Валютный кризис", "inflation": "Инфляционный кризис", "recession": "Рецессия",
+         "conflict": "Начало вооружённого конфликта"}
+CONFLICT_THRESHOLD = 25  # погибших за год (порог «малого» конфликта в UCDP)
+
+
+def available_kinds(panel):
+    """Виды событий, для которых в панели есть данные для меток. 'conflict' требует загруженных данных UCDP."""
+    kinds = ["currency", "inflation", "recession"]
+    if "conflict_deaths" in panel and panel["conflict_deaths"].notna().sum() > 200:
+        kinds.append("conflict")
+    return kinds
 LEVEL_COLS = ["gdp_growth", "inflation", "unemployment", "current_account", "gov_debt", "fiscal_balance", "savings",
               "investment", "output_gap", "export_growth", "import_growth", "reserves_months", "ext_debt_gni",
               "short_debt_reserves", "fdi", "broad_money_growth", "private_credit", "real_interest", "trade_gdp",
-              "political_stability", "corruption_control"]
+              "political_stability", "corruption_control", "conflict_log", "conflict_3y"]
 DELTA_COLS = ["inflation", "gdp_growth", "current_account", "gov_debt", "fiscal_balance", "unemployment",
               "private_credit", "reserves_months"]
 FEATURE_LABELS = {
@@ -46,6 +56,15 @@ def derive(panel):
         df["log_gdp_pc"] = np.log((df["gdp_usd"] / df["population"]).where(lambda s: s > 0))
     if "population" in df:
         df["log_pop"] = np.log(df["population"].where(lambda s: s > 0))
+    if "conflict_deaths" in df and df["conflict_deaths"].notna().any():
+        yrs = df.index.get_level_values("year")
+        seen = df["conflict_deaths"].dropna().index.get_level_values("year")
+        covered = (yrs >= seen.min()) & (yrs <= seen.max())
+        cd = df["conflict_deaths"].where(~covered | df["conflict_deaths"].notna(), 0.0)   # нет событий в покрытых годах = 0
+        cd = cd.where(covered)
+        df["conflict_deaths"] = cd
+        df["conflict_log"] = np.log1p(cd)
+        df["conflict_3y"] = np.log1p(cd.groupby(level="iso3").transform(lambda x: x.rolling(3, min_periods=1).max()))
     return df.replace([np.inf, -np.inf], np.nan)
 
 
@@ -66,6 +85,15 @@ def labels(df):
     # В риск-набор не попадают страны, уже находящиеся в кризисе в предыдущем году
     in_crisis = {"currency": g_shift(flag_c, 1) | g_shift(flag_c, 2), "inflation": g_shift(infl, 1) >= 20,
                  "recession": g_shift(gr, 1) < 0}
+    if "conflict_deaths" in df:
+        cd = df["conflict_deaths"]
+        onset["conflict"] = (cd >= CONFLICT_THRESHOLD) & (g_shift(cd, 1) < CONFLICT_THRESHOLD)
+        known["conflict"] = cd.notna() & g_shift(cd, 1).notna()
+        in_crisis["conflict"] = g_shift(cd, 1) >= CONFLICT_THRESHOLD
+    else:
+        onset["conflict"] = pd.Series(False, index=df.index)
+        known["conflict"] = pd.Series(False, index=df.index)
+        in_crisis["conflict"] = pd.Series(False, index=df.index)
     return onset, known, in_crisis
 
 
@@ -174,7 +202,7 @@ def evaluate(panel, kind, first_test_year=2000, last_year=None, refit_every=3):
         out[m] = {"auc": float(roc_auc_score(preds["y"], p)), "ap": float(average_precision_score(preds["y"], p)),
                   "top_decile_capture": float(preds.loc[top, "y"].sum() / max(preds["y"].sum(), 1))}
     # Простые ориентиры: «просто смотрим на один признак»
-    naive = {"currency": "dep_lag", "inflation": "inflation", "recession": "gdp_growth"}[kind]
+    naive = {"currency": "dep_lag", "inflation": "inflation", "recession": "gdp_growth", "conflict": "conflict_3y"}[kind]
     if naive in X.columns:
         s = X[naive].reindex(preds.index)
         sign = -1 if kind == "recession" else 1

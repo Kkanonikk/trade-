@@ -241,5 +241,6 @@ def test_sources_probe_reports_each_source_without_network(monkeypatch):
     for fn in ("fetch_yahoo", "fetch_stooq", "fetch_moex", "fetch_fx_ecb", "fetch_fx_cbr", "fetch_fred"):
         monkeypatch.setattr(sources, fn, boom)
     monkeypatch.setattr(sources, "get", boom)
+    monkeypatch.setattr(sources, "_head", boom)
     res = sources.probe_all()
-    assert len(res) == 8 and not any(ok for _, ok, _ in res)
+    assert len(res) == 14 and not any(ok for _, ok, _ in res)

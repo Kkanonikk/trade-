@@ -151,3 +151,32 @@ def upsert_trade(con, df):
 
 def load_trade(con):
     return pd.read_sql_query("SELECT reporter, partner, year, flow, value FROM trade", con)
+
+
+# ---------------------------------------------------------------- события конфликтов (UCDP GED)
+GED_SCHEMA = """
+CREATE TABLE IF NOT EXISTS ged (id INTEGER PRIMARY KEY, year INTEGER, date TEXT, violence INTEGER, conflict TEXT,
+    side_a TEXT, side_b TEXT, country TEXT, iso3 TEXT, lat REAL, lon REAL, best REAL, civilians REAL)
+"""
+
+
+def connect_events(path=None):
+    con = connect_macro(path)
+    con.execute(GED_SCHEMA)
+    return con
+
+
+def upsert_ged(con, ged):
+    rows = [(int(r.id), int(r.year), str(r.date)[:10], int(r.type_of_violence) if pd.notna(r.type_of_violence) else None,
+             r.conflict_name, r.side_a, r.side_b, r.country, r.iso3, float(r.latitude), float(r.longitude),
+             float(r.best) if pd.notna(r.best) else 0.0, float(r.deaths_civilians) if pd.notna(r.deaths_civilians) else 0.0)
+            for r in ged.itertuples(index=False) if pd.notna(r.year) and pd.notna(r.id)]
+    con.executemany("INSERT OR REPLACE INTO ged VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)", rows)
+    con.commit()
+    return len(rows)
+
+
+def load_ged(con):
+    df = pd.read_sql_query("SELECT * FROM ged", con)
+    return df.rename(columns={"violence": "type_of_violence", "conflict": "conflict_name", "lat": "latitude",
+                              "lon": "longitude", "civilians": "deaths_civilians"})

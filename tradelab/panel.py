@@ -44,6 +44,7 @@ INDICATORS = {
     "trade_gdp": ("Торговля, % ВВП", None, "NE.TRD.GNFS.ZS", "Внешний сектор"),
     "political_stability": ("Политическая стабильность (WGI)", None, "PV.EST", "Институты"),
     "corruption_control": ("Контроль коррупции (WGI)", None, "CC.EST", "Институты"),
+    "conflict_deaths": ("Погибшие в конфликтах (UCDP), чел.", None, None, "Безопасность"),
 }
 LABELS = {k: v[0] for k, v in INDICATORS.items()}
 WEO_TO_STD = {v[1]: k for k, v in INDICATORS.items() if v[1]}
@@ -156,6 +157,12 @@ def refresh_live(progress=None):
     long["prio"] = long["ind"].map(lambda _: 0)
     wide = long.pivot_table(index=["iso3", "year"], columns="ind", values="value", aggfunc="first")
     return wide.sort_index(), report
+
+
+def with_conflicts(panel, ged_country_year):
+    """Добавляет в панель показатель conflict_deaths из таблицы UCDP (iso3, year, indicator, value)."""
+    cd = ged_country_year.pivot_table(index=["iso3", "year"], columns="indicator", values="value")
+    return panel.drop(columns=["conflict_deaths"], errors="ignore").join(cd, how="outer").sort_index()
 
 
 def to_long(panel):
