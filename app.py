@@ -8,7 +8,7 @@ import streamlit as st
 from plotly.subplots import make_subplots
 
 from tradelab import (autotrade, backtest, compliance, config, demo, indicators, models, optimize,
-                      paper, risk, ru_data, sources, store, strategies, views, worlddata)
+                      paper, risk, ru_data, sources, store, strategies, views, views_global, worlddata)
 from tradelab.bcs import TIMEFRAMES, BcsClient, BcsError
 from tradelab.ui import C, pct, style
 
@@ -156,10 +156,10 @@ if len(ST):
 R_all = risk.returns_frame(frames) if len(frames) >= 2 else None
 weights, weights_fallback = (pick_weights(list(R_all.columns)) if R_all is not None else ({}, False))
 
-tabs = st.tabs(["ОБЗОР", "МИР", "ГРАФИК", "РИСК", "ФАКТОРЫ", "СТРУКТУРА", "МАКРО", "ОТЧЁТНОСТЬ", "ОПТИМИЗАТОР",
-                "СТРАТЕГИИ", "МОДЕЛИ", "СКАНЕР", "АВТОТОРГОВЛЯ", "ДАННЫЕ"])
-(tab_ov, tab_world, tab_chart, tab_risk, tab_factors, tab_struct, tab_macro, tab_fund, tab_opt, tab_strat,
- tab_models, tab_scan, tab_auto, tab_data) = tabs
+tabs = st.tabs(["ОБЗОР", "МИР", "КРИЗИСЫ", "ВАЛЮТЫ", "ТОРГОВЛЯ", "СТРУКТУРА", "МАКРО", "ОТЧЁТНОСТЬ", "ГРАФИК", "РИСК",
+                "ФАКТОРЫ", "ОПТИМИЗАТОР", "СТРАТЕГИИ", "МОДЕЛИ", "СКАНЕР", "АВТОТОРГОВЛЯ", "ДАННЫЕ", "ИСТОЧНИКИ"])
+(tab_ov, tab_world, tab_crisis, tab_fx, tab_trade, tab_struct, tab_macro, tab_fund, tab_chart, tab_risk,
+ tab_factors, tab_opt, tab_strat, tab_models, tab_scan, tab_auto, tab_data, tab_sources) = tabs
 limits_ss = st.session_state.setdefault("limits", compliance.Limits())
 
 # ---------------------------------------------------------------- ОБЗОР
@@ -202,6 +202,18 @@ with tab_ov:
 # ---------------------------------------------------------------- МИР, СТРУКТУРА, МАКРО, ОТЧЁТНОСТЬ
 with tab_world:
     views.view_world(world, use_demo)
+
+with tab_crisis:
+    views_global.view_crises(VERSION, bump)
+
+with tab_fx:
+    views_global.view_fx()
+
+with tab_trade:
+    views_global.view_trade(VERSION, bump, use_demo)
+
+with tab_sources:
+    views_global.view_sources()
 
 with tab_struct:
     universe = st.radio("Универсум", ["Мировые индексы", "Акции РФ"], horizontal=True)

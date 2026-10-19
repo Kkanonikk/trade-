@@ -1,0 +1,250 @@
+iso3,iso2,numeric,name_en,name_ru,currency,region,subregion,independent,lat,lon
+AFG,AF,4,Afghanistan,Афганистан,AFN,Asia,Southern Asia,Yes,33.86,66.09
+ALA,AX,248,Åland Islands,,EUR,Europe,Northern Europe,Part of FI,,
+ALB,AL,8,Albania,Албания,ALL,Europe,Southern Europe,Yes,41.14,20.03
+DZA,DZ,12,Algeria,Алжир,DZD,Africa,Northern Africa,Yes,28.19,2.6
+ASM,AS,16,American Samoa,,USD,Oceania,Polynesia,Territory of US,,
+AND,AD,20,Andorra,Андорра,EUR,Europe,Southern Europe,Yes,,
+AGO,AO,24,Angola,Ангола,AOA,Africa,Sub-Saharan Africa,Yes,-12.29,17.5
+AIA,AI,660,Anguilla,,XCD,Americas,Latin America and the Caribbean,Territory of GB,,
+ATA,AQ,10,Antarctica,,,,,International,-80.52,21.28
+ATG,AG,28,Antigua and Barbuda,Антигуа и Барбуда,XCD,Americas,Latin America and the Caribbean,Yes,,
+ARG,AR,32,Argentina,Аргентина,ARS,Americas,Latin America and the Caribbean,Yes,-35.22,-65.15
+ARM,AM,51,Armenia,Армения,AMD,Asia,Western Asia,Yes,40.22,45.0
+ABW,AW,533,Aruba,,AWG,Americas,Latin America and the Caribbean,Part of NL,,
+AUS,AU,36,Australia,Австралия,AUD,Oceania,Australia and New Zealand,Yes,-25.56,134.38
+AUT,AT,40,Austria,Австрия,EUR,Europe,Western Europe,Yes,47.61,14.08
+AZE,AZ,31,Azerbaijan,Азербайджан,AZN,Asia,Western Asia,Yes,40.28,47.68
+BHS,BS,44,Bahamas (the),Багамские Острова,BSD,Americas,Latin America and the Caribbean,Yes,24.51,-77.91
+BHR,BH,48,Bahrain,Бахрейн,BHD,Asia,Western Asia,Yes,,
+BGD,BD,50,Bangladesh,Бангладеш,BDT,Asia,Southern Asia,Yes,23.84,90.27
+BRB,BB,52,Barbados,Барбадос,BBD,Americas,Latin America and the Caribbean,Yes,,
+BLR,BY,112,Belarus,Беларусь,BYN,Europe,Eastern Europe,Yes,53.51,27.98
+BEL,BE,56,Belgium,Бельгия,EUR,Europe,Western Europe,Yes,50.66,4.58
+BLZ,BZ,84,Belize,Белиз,BZD,Americas,Latin America and the Caribbean,Yes,17.2,-88.7
+BEN,BJ,204,Benin,Бенин,XOF,Africa,Sub-Saharan Africa,Yes,9.65,2.34
+BMU,BM,60,Bermuda,,BMD,Americas,Northern America,Territory of GB,,
+BTN,BT,64,Bhutan,Бутан,"INR,BTN",Asia,Southern Asia,Yes,27.43,90.47
+BOL,BO,68,Bolivia (Plurinational State of),Боливия (Многонациональное Государство),BOB,Americas,Latin America and the Caribbean,Yes,-16.73,-64.64
+BES,BQ,535,Caribbean Netherlands,,USD,Americas,Latin America and the Caribbean,Part of NL,,
+BIH,BA,70,Bosnia and Herzegovina,Босния и Герцеговина,BAM,Europe,Southern Europe,Yes,44.18,17.82
+BWA,BW,72,Botswana,Ботсвана,BWP,Africa,Sub-Saharan Africa,Yes,-22.1,23.77
+BVT,BV,74,Bouvet Island,,NOK,Americas,Latin America and the Caribbean,Territory of NO,,
+BRA,BR,76,Brazil,Бразилия,BRL,Americas,Latin America and the Caribbean,Yes,-10.81,-53.05
+IOT,IO,86,British Indian Ocean Territory,,USD,Africa,Sub-Saharan Africa,Territory of GB,,
+VGB,VG,92,British Virgin Islands,,USD,Americas,Latin America and the Caribbean,Territory of GB,,
+BRN,BN,96,Brunei Darussalam,Бруней-Даруссалам,BND,Asia,South-eastern Asia,Yes,4.69,114.92
+BGR,BG,100,Bulgaria,Болгария,EUR,Europe,Eastern Europe,Yes,42.75,25.2
+BFA,BF,854,Burkina Faso,Буркина-Фасо,XOF,Africa,Sub-Saharan Africa,Yes,12.31,-1.78
+BDI,BI,108,Burundi,Бурунди,BIF,Africa,Sub-Saharan Africa,Yes,-3.38,29.92
+CPV,CV,132,Cabo Verde,Кабо-Верде,CVE,Africa,Sub-Saharan Africa,Yes,,
+KHM,KH,116,Cambodia,Камбоджа,KHR,Asia,South-eastern Asia,Yes,12.68,104.87
+CMR,CM,120,Cameroon,Камерун,XAF,Africa,Sub-Saharan Africa,Yes,5.66,12.61
+CAN,CA,124,Canada,Канада,CAD,Americas,Northern America,Yes,57.75,-101.57
+CYM,KY,136,Cayman Islands,,KYD,Americas,Latin America and the Caribbean,Territory of GB,,
+CAF,CF,140,Central African Republic (the),Центральноафриканская Республика,XAF,Africa,Sub-Saharan Africa,Yes,6.54,20.38
+TCD,TD,148,Chad,Чад,XAF,Africa,Sub-Saharan Africa,Yes,15.33,18.58
+CHL,CL,152,Chile,Чили,CLP,Americas,Latin America and the Caribbean,Yes,-37.35,-71.67
+CHN,CN,156,China,Китай,CNY,Asia,Eastern Asia,Yes,36.61,103.86
+HKG,HK,344,Hong Kong,,HKD,Asia,Eastern Asia,Part of CN,,
+MAC,MO,446,Macao,,MOP,Asia,Eastern Asia,Part of CN,,
+CXR,CX,162,Christmas Island,,AUD,Oceania,Australia and New Zealand,Territory of AU,,
+CCK,CC,166,Cocos Islands,,AUD,Oceania,Australia and New Zealand,Territory of AU,,
+COL,CO,170,Colombia,Колумбия,COP,Americas,Latin America and the Caribbean,Yes,3.93,-73.08
+COM,KM,174,Comoros (the),Коморские Острова,KMF,Africa,Sub-Saharan Africa,Yes,,
+COG,CG,178,Congo (the),Конго,XAF,Africa,Sub-Saharan Africa,Yes,-0.84,15.13
+COK,CK,184,Cook Islands (the) **,Острова Кука **,NZD,Oceania,Polynesia,Associated with NZ,,
+CRI,CR,188,Costa Rica,Коста-Рика,CRC,Americas,Latin America and the Caribbean,Yes,9.97,-84.18
+HRV,HR,191,Croatia,Хорватия,EUR,Europe,Southern Europe,Yes,45.02,16.57
+CUB,CU,192,Cuba,Куба,CUP,Americas,Latin America and the Caribbean,Yes,21.63,-78.96
+CUW,CW,531,Curaçao,,XCG,Americas,Latin America and the Caribbean,Part of NL,,
+CYP,CY,196,Cyprus,Кипр,EUR,Asia,Western Asia,Yes,34.91,33.04
+CZE,CZ,203,Czechia,Чехия,CZK,Europe,Eastern Europe,Yes,49.78,15.34
+PRK,KP,408,Democratic People's Republic of Korea (the),Корейская Народно-Демократическая Республика,KPW,Asia,Eastern Asia,Yes,40.14,127.17
+COD,CD,180,Democratic Republic of the Congo (the),Демократическая Республика Конго,CDF,Africa,Sub-Saharan Africa,Yes,-2.85,23.58
+DNK,DK,208,Denmark,Дания,DKK,Europe,Northern Europe,Yes,56.22,9.31
+DJI,DJ,262,Djibouti,Джибути,DJF,Africa,Sub-Saharan Africa,Yes,11.77,42.5
+DMA,DM,212,Dominica,Доминика,XCD,Americas,Latin America and the Caribbean,Yes,,
+DOM,DO,214,Dominican Republic (the),Доминиканская Республика,DOP,Americas,Latin America and the Caribbean,Yes,18.88,-70.46
+ECU,EC,218,Ecuador,Эквадор,USD,Americas,Latin America and the Caribbean,Yes,-1.45,-78.38
+EGY,EG,818,Egypt,Египет,EGP,Africa,Northern Africa,Yes,26.51,29.84
+SLV,SV,222,El Salvador,Сальвадор,"SVC,USD",Americas,Latin America and the Caribbean,Yes,13.72,-88.87
+GNQ,GQ,226,Equatorial Guinea,Экваториальная Гвинея,XAF,Africa,Sub-Saharan Africa,Yes,1.65,10.37
+ERI,ER,232,Eritrea,Эритрея,ERN,Africa,Sub-Saharan Africa,Yes,15.43,38.67
+EST,EE,233,Estonia,Эстония,EUR,Europe,Northern Europe,Yes,58.64,25.83
+SWZ,SZ,748,Eswatini,Эсватини,SZL,Africa,Sub-Saharan Africa,Yes,-26.49,31.4
+ETH,ET,231,Ethiopia,Эфиопия,ETB,Africa,Sub-Saharan Africa,Yes,8.65,39.55
+FLK,FK,238,Falkland Islands,,FKP,Americas,Latin America and the Caribbean,Territory of GB,-51.71,-59.42
+FRO,FO,234,Faroe Islands,,DKK,Europe,Northern Europe,Part of DK,,
+FJI,FJ,242,Fiji,Фиджи,FJD,Oceania,Melanesia,Yes,-17.83,178.0
+FIN,FI,246,Finland,Финляндия,EUR,Europe,Northern Europe,Yes,64.5,26.21
+FRA,FR,250,France,Франция,EUR,Europe,Western Europe,Yes,46.61,2.34
+GUF,GF,254,French Guiana,,EUR,Americas,Latin America and the Caribbean,Part of FR,,
+PYF,PF,258,French Polynesia,,XPF,Oceania,Polynesia,Territory of FR,,
+ATF,TF,260,French Southern Territories,,EUR,Africa,Sub-Saharan Africa,Territory of FR,-49.3,69.53
+GAB,GA,266,Gabon,Габон,XAF,Africa,Sub-Saharan Africa,Yes,-0.65,11.69
+GMB,GM,270,Gambia (the),Гамбия,GMD,Africa,Sub-Saharan Africa,Yes,13.48,-15.43
+GEO,GE,268,Georgia,Грузия,GEL,Asia,Western Asia,Yes,42.16,43.48
+DEU,DE,276,Germany,Германия,EUR,Europe,Western Europe,Yes,51.13,10.29
+GHA,GH,288,Ghana,Гана,GHS,Africa,Sub-Saharan Africa,Yes,7.93,-1.24
+GIB,GI,292,Gibraltar,,GIP,Europe,Southern Europe,Territory of GB,,
+GRC,GR,300,Greece,Греция,EUR,Europe,Southern Europe,Yes,39.34,22.56
+GRL,GL,304,Greenland,,DKK,Americas,Northern America,Part of DK,74.77,-41.5
+GRD,GD,308,Grenada,Гренада,XCD,Americas,Latin America and the Caribbean,Yes,,
+GLP,GP,312,Guadeloupe,,EUR,Americas,Latin America and the Caribbean,Part of FR,,
+GUM,GU,316,Guam,,USD,Oceania,Micronesia,Territory of US,,
+GTM,GT,320,Guatemala,Гватемала,GTQ,Americas,Latin America and the Caribbean,Yes,15.7,-90.37
+GGY,GG,831,Guernsey,,GBP,Europe,Northern Europe,Crown dependency of GB,,
+GIN,GN,324,Guinea,Гвинея,GNF,Africa,Sub-Saharan Africa,Yes,10.45,-11.06
+GNB,GW,624,Guinea-Bissau,Гвинея-Бисау,XOF,Africa,Sub-Saharan Africa,Yes,12.02,-15.11
+GUY,GY,328,Guyana,Гайана,GYD,Americas,Latin America and the Caribbean,Yes,4.79,-58.97
+HTI,HT,332,Haiti,Гаити,"HTG,USD",Americas,Latin America and the Caribbean,Yes,18.9,-72.66
+HMD,HM,334,Heard & McDonald Islands,,AUD,Oceania,Australia and New Zealand,Territory of AU,,
+VAT,VA,336,Holy See (the) *,Святой Престол *,EUR,Europe,Southern Europe,Yes,,
+HND,HN,340,Honduras,Гондурас,HNL,Americas,Latin America and the Caribbean,Yes,14.82,-86.59
+HUN,HU,348,Hungary,Венгрия,HUF,Europe,Eastern Europe,Yes,47.2,19.36
+ISL,IS,352,Iceland,Исландия,ISK,Europe,Northern Europe,Yes,65.07,-18.76
+IND,IN,356,India,Индия,INR,Asia,Southern Asia,Yes,22.92,79.59
+IDN,ID,360,Indonesia,Индонезия,IDR,Asia,South-eastern Asia,Yes,-0.25,114.02
+IRN,IR,364,Iran (Islamic Republic of),Иран (Исламская Республика),IRR,Asia,Southern Asia,Yes,32.52,54.29
+IRQ,IQ,368,Iraq,Ирак,IQD,Asia,Western Asia,Yes,33.04,43.76
+IRL,IE,372,Ireland,Ирландия,EUR,Europe,Northern Europe,Yes,53.18,-8.01
+IMN,IM,833,Isle of Man,,GBP,Europe,Northern Europe,Crown dependency of GB,,
+ISR,IL,376,Israel,Израиль,ILS,Asia,Western Asia,Yes,31.48,35.0
+ITA,IT,380,Italy,Италия,EUR,Europe,Southern Europe,Yes,43.47,12.22
+CIV,CI,384,Côte d’Ivoire,,XOF,Africa,Sub-Saharan Africa,Yes,7.55,-5.61
+JAM,JM,388,Jamaica,Ямайка,JMD,Americas,Latin America and the Caribbean,Yes,18.14,-77.33
+JPN,JP,392,Japan,Япония,JPY,Asia,Eastern Asia,Yes,36.02,136.88
+JEY,JE,832,Jersey,,GBP,Europe,Northern Europe,Crown dependency of GB,,
+JOR,JO,400,Jordan,Иордания,JOD,Asia,Western Asia,Yes,31.25,36.78
+KAZ,KZ,398,Kazakhstan,Казахстан,KZT,Asia,Central Asia,Yes,48.19,67.29
+KEN,KE,404,Kenya,Кения,KES,Africa,Sub-Saharan Africa,Yes,0.6,37.79
+KIR,KI,296,Kiribati,Кирибати,AUD,Oceania,Micronesia,Yes,,
+KWT,KW,414,Kuwait,Кувейт,KWD,Asia,Western Asia,Yes,29.31,47.6
+KGZ,KG,417,Kyrgyzstan,Кыргызстан,KGS,Asia,Central Asia,Yes,41.51,74.62
+LAO,LA,418,Lao People's Democratic Republic (the),Лаосская Народно-Демократическая Республика,LAK,Asia,South-eastern Asia,Yes,18.45,103.75
+LVA,LV,428,Latvia,Латвия,EUR,Europe,Northern Europe,Yes,56.81,24.84
+LBN,LB,422,Lebanon,Ливан,LBP,Asia,Western Asia,Yes,33.91,35.87
+LSO,LS,426,Lesotho,Лесото,"LSL,ZAR",Africa,Sub-Saharan Africa,Yes,-29.63,28.17
+LBR,LR,430,Liberia,Либерия,LRD,Africa,Sub-Saharan Africa,Yes,6.43,-9.41
+LBY,LY,434,Libya,Ливия,LYD,Africa,Northern Africa,Yes,27.0,17.97
+LIE,LI,438,Liechtenstein,Лихтенштейн,CHF,Europe,Western Europe,Yes,,
+LTU,LT,440,Lithuania,Литва,EUR,Europe,Northern Europe,Yes,55.28,23.88
+LUX,LU,442,Luxembourg,Люксембург,EUR,Europe,Western Europe,Yes,49.76,5.96
+MDG,MG,450,Madagascar,Мадагаскар,MGA,Africa,Sub-Saharan Africa,Yes,-19.36,46.69
+MWI,MW,454,Malawi,Малави,MWK,Africa,Sub-Saharan Africa,Yes,-13.17,34.19
+MYS,MY,458,Malaysia,Малайзия,MYR,Asia,South-eastern Asia,Yes,3.55,114.67
+MDV,MV,462,Maldives,Мальдивские Острова,MVR,Asia,Southern Asia,Yes,,
+MLI,ML,466,Mali,Мали,XOF,Africa,Sub-Saharan Africa,Yes,17.27,-3.54
+MLT,MT,470,Malta,Мальта,EUR,Europe,Southern Europe,Yes,,
+MHL,MH,584,Marshall Islands (the),Маршалловы Острова,USD,Oceania,Micronesia,Yes,,
+MTQ,MQ,474,Martinique,,EUR,Americas,Latin America and the Caribbean,Part of FR,,
+MRT,MR,478,Mauritania,Мавритания,MRU,Africa,Sub-Saharan Africa,Yes,20.21,-10.33
+MUS,MU,480,Mauritius,Маврикий,MUR,Africa,Sub-Saharan Africa,Yes,,
+MYT,YT,175,Mayotte,,EUR,Africa,Sub-Saharan Africa,Part of FR,,
+MEX,MX,484,Mexico,Мексика,MXN,Americas,Latin America and the Caribbean,Yes,23.94,-102.58
+FSM,FM,583,Micronesia (Federated States of),Микронезия (Федеративные Штаты),USD,Oceania,Micronesia,Yes,,
+MCO,MC,492,Monaco,Монако,EUR,Europe,Western Europe,Yes,,
+MNG,MN,496,Mongolia,Монголия,MNT,Asia,Eastern Asia,Yes,46.82,102.95
+MNE,ME,499,Montenegro,Черногория,EUR,Europe,Southern Europe,Yes,42.79,19.29
+MSR,MS,500,Montserrat,,XCD,Americas,Latin America and the Caribbean,Territory of GB,,
+MAR,MA,504,Morocco,Марокко,MAD,Africa,Northern Africa,Yes,29.89,-8.42
+MOZ,MZ,508,Mozambique,Мозамбик,MZN,Africa,Sub-Saharan Africa,Yes,-17.23,35.47
+MMR,MM,104,Myanmar,Мьянма,MMK,Asia,South-eastern Asia,Yes,21.01,96.51
+NAM,NA,516,Namibia,Намибия,"NAD,ZAR",Africa,Sub-Saharan Africa,Yes,-22.1,17.16
+NRU,NR,520,Nauru,Науру,AUD,Oceania,Micronesia,Yes,,
+NPL,NP,524,Nepal,Непал,NPR,Asia,Southern Asia,Yes,28.24,84.01
+NLD,NL,528,Netherlands (the),Нидерланды,EUR,Europe,Western Europe,Yes,52.3,5.51
+NCL,NC,540,New Caledonia,,XPF,Oceania,Melanesia,Territory of FR,-21.26,165.54
+NZL,NZ,554,New Zealand,Новая Зеландия,NZD,Oceania,Australia and New Zealand,Yes,-43.99,170.51
+NIC,NI,558,Nicaragua,Никарагуа,NIO,Americas,Latin America and the Caribbean,Yes,12.85,-85.02
+NER,NE,562,Niger (the),Нигер,XOF,Africa,Sub-Saharan Africa,Yes,17.35,9.32
+NGA,NG,566,Nigeria,Нигерия,NGN,Africa,Sub-Saharan Africa,Yes,9.55,8.0
+NIU,NU,570,Niue **,Ниуэ **,NZD,Oceania,Polynesia,Associated with NZ,,
+NFK,NF,574,Norfolk Island,,AUD,Oceania,Australia and New Zealand,Territory of AU,,
+MNP,MP,580,Northern Mariana Islands,,USD,Oceania,Micronesia,Commonwealth of US,,
+MKD,MK,807,North Macedonia,Северная Македония,MKD,Europe,Southern Europe,Yes,41.61,21.7
+NOR,NO,578,Norway,Норвегия,NOK,Europe,Northern Europe,Yes,64.54,14.25
+OMN,OM,512,Oman,Оман,OMR,Asia,Western Asia,Yes,20.58,56.1
+PAK,PK,586,Pakistan,Пакистан,PKR,Asia,Southern Asia,Yes,29.97,69.41
+PLW,PW,585,Palau,Палау,USD,Oceania,Micronesia,Yes,,
+PAN,PA,591,Panama,Панама,"PAB,USD",Americas,Latin America and the Caribbean,Yes,8.53,-80.11
+PNG,PG,598,Papua New Guinea,Папуа — Новая Гвинея,PGK,Oceania,Melanesia,Yes,-6.65,144.33
+PRY,PY,600,Paraguay,Парагвай,PYG,Americas,Latin America and the Caribbean,Yes,-23.25,-58.39
+PER,PE,604,Peru,Перу,PEN,Americas,Latin America and the Caribbean,Yes,-9.19,-74.39
+PHL,PH,608,Philippines (the),Филиппины,PHP,Asia,South-eastern Asia,Yes,15.75,121.55
+PCN,PN,612,Pitcairn,,NZD,Oceania,Polynesia,Territory of GB,,
+POL,PL,616,Poland,Польша,PLN,Europe,Eastern Europe,Yes,52.15,19.31
+PRT,PT,620,Portugal,Португалия,EUR,Europe,Southern Europe,Yes,39.63,-8.06
+PRI,PR,630,Puerto Rico,,USD,Americas,Latin America and the Caribbean,Commonwealth of US,18.24,-66.48
+QAT,QA,634,Qatar,Катар,QAR,Asia,Western Asia,Yes,25.32,51.18
+KOR,KR,410,Republic of Korea (the),Республика Корея,KRW,Asia,Eastern Asia,Yes,36.43,127.82
+MDA,MD,498,Republic of Moldova (the),Республика Молдова,MDL,Europe,Eastern Europe,Yes,47.21,28.41
+REU,RE,638,Réunion,,EUR,Africa,Sub-Saharan Africa,Part of FR,,
+ROU,RO,642,Romania,Румыния,RON,Europe,Eastern Europe,Yes,45.86,24.94
+RUS,RU,643,Russian Federation (the),Российская Федерация,RUB,Europe,Eastern Europe,Yes,61.69,99.22
+RWA,RW,646,Rwanda,Руанда,RWF,Africa,Sub-Saharan Africa,Yes,-2.01,29.92
+BLM,BL,652,St. Barthélemy,,EUR,Americas,Latin America and the Caribbean,Part of FR,,
+SHN,SH,654,St. Helena,,SHP,Africa,Sub-Saharan Africa,Territory of GB,,
+KNA,KN,659,Saint Kitts and Nevis,Сент-Китс и Невис,XCD,Americas,Latin America and the Caribbean,Yes,,
+LCA,LC,662,Saint Lucia,Сент-Люсия,XCD,Americas,Latin America and the Caribbean,Yes,,
+MAF,MF,663,St. Martin,,EUR,Americas,Latin America and the Caribbean,Part of FR,,
+SPM,PM,666,St. Pierre & Miquelon,,EUR,Americas,Northern America,Part of FR,,
+VCT,VC,670,Saint Vincent and the Grenadines,Сент-Винсент и Гренадины,XCD,Americas,Latin America and the Caribbean,Yes,,
+WSM,WS,882,Samoa,Самоа,WST,Oceania,Polynesia,Yes,,
+SMR,SM,674,San Marino,Сан-Марино,EUR,Europe,Southern Europe,Yes,,
+STP,ST,678,Sao Tome and Principe,Сан-Томе и Принсипи,STN,Africa,Sub-Saharan Africa,Yes,,
+SAU,SA,682,Saudi Arabia,Саудовская Аравия,SAR,Asia,Western Asia,Yes,24.12,44.52
+SEN,SN,686,Senegal,Сенегал,XOF,Africa,Sub-Saharan Africa,Yes,14.36,-14.51
+SRB,RS,688,Serbia,Сербия,RSD,Europe,Southern Europe,Yes,44.23,20.82
+SYC,SC,690,Seychelles,Сейшельские Острова,SCR,Africa,Sub-Saharan Africa,Yes,,
+SLE,SL,694,Sierra Leone,Сьерра-Леоне,SLE,Africa,Sub-Saharan Africa,Yes,8.53,-11.8
+SGP,SG,702,Singapore,Сингапур,SGD,Asia,South-eastern Asia,Yes,,
+SXM,SX,534,Sint Maarten,,XCG,Americas,Latin America and the Caribbean,Part of NL,,
+SVK,SK,703,Slovakia,Словакия,EUR,Europe,Eastern Europe,Yes,48.73,19.51
+SVN,SI,705,Slovenia,Словения,EUR,Europe,Southern Europe,Yes,46.12,14.94
+SLB,SB,90,Solomon Islands,Соломоновы Острова,SBD,Oceania,Melanesia,Yes,-7.9,159.11
+SOM,SO,706,Somalia,Сомали,SOS,Africa,Sub-Saharan Africa,Yes,4.75,45.72
+ZAF,ZA,710,South Africa,Южная Африка,ZAR,Africa,Sub-Saharan Africa,Yes,-28.96,25.12
+SGS,GS,239,South Georgia & South Sandwich Islands,,,Americas,Latin America and the Caribbean,Territory of GB,,
+SSD,SS,728,South Sudan,Южный Судан,SSP,Africa,Sub-Saharan Africa,Yes,,
+ESP,ES,724,Spain,Испания,EUR,Europe,Southern Europe,Yes,40.35,-3.62
+LKA,LK,144,Sri Lanka,Шри-Ланка,LKR,Asia,Southern Asia,Yes,7.7,80.67
+PSE,PS,275,State of Palestine (the) *,Государство Палестина *,,Asia,Western Asia,In contention,,
+SDN,SD,729,Sudan (the),Судан,SDG,Africa,Northern Africa,Yes,15.99,29.86
+SUR,SR,740,Suriname,Суринам,SRD,Americas,Latin America and the Caribbean,Yes,4.12,-55.91
+SJM,SJ,744,Svalbard & Jan Mayen,,NOK,Europe,Northern Europe,Territory of NO,,
+SWE,SE,752,Sweden,Швеция,SEK,Europe,Northern Europe,Yes,62.81,16.6
+CHE,CH,756,Switzerland,Швейцария,CHF,Europe,Western Europe,Yes,46.79,8.12
+SYR,SY,760,Syrian Arab Republic (the),Сирийская Арабская Республика,SYP,Asia,Western Asia,Yes,35.01,38.54
+TWN,TW,158,Taiwan,,TWD,Asia,Eastern Asia,Yes,23.74,120.98
+TJK,TJ,762,Tajikistan,Таджикистан,TJS,Asia,Central Asia,Yes,38.58,71.03
+THA,TH,764,Thailand,Таиланд,THB,Asia,South-eastern Asia,Yes,15.02,101.01
+TLS,TL,626,Timor-Leste,Тимор-Лешти,USD,Asia,South-eastern Asia,Yes,-8.77,125.97
+TGO,TG,768,Togo,Того,XOF,Africa,Sub-Saharan Africa,Yes,8.44,1.0
+TKL,TK,772,Tokelau,,NZD,Oceania,Polynesia,Territory of NZ,,
+TON,TO,776,Tonga,Тонга,TOP,Oceania,Polynesia,Yes,,
+TTO,TT,780,Trinidad and Tobago,Тринидад и Тобаго,TTD,Americas,Latin America and the Caribbean,Yes,10.43,-61.33
+TUN,TN,788,Tunisia,Тунис,TND,Africa,Northern Africa,Yes,34.17,9.53
+TUR,TR,792,Türkiye,,TRY,Asia,Western Asia,Yes,38.99,35.39
+TKM,TM,795,Turkmenistan,Туркменистан,TMT,Asia,Central Asia,Yes,39.09,59.27
+TCA,TC,796,Turks & Caicos Islands,,USD,Americas,Latin America and the Caribbean,Territory of GB,,
+TUV,TV,798,Tuvalu,Тувалу,AUD,Oceania,Polynesia,Yes,,
+UGA,UG,800,Uganda,Уганда,UGX,Africa,Sub-Saharan Africa,Yes,1.3,32.36
+UKR,UA,804,Ukraine,Украина,UAH,Europe,Eastern Europe,Yes,49.15,31.23
+ARE,AE,784,United Arab Emirates (the),Объединенные Арабские Эмираты,AED,Asia,Western Asia,Yes,23.87,54.21
+GBR,GB,826,United Kingdom of Great Britain and Northern Ireland (the),Соединенное Королевство Великобритании и Северной Ирландии,GBP,Europe,Northern Europe,Yes,53.88,-2.66
+TZA,TZ,834,United Republic of Tanzania (the),Объединенная Республика Танзания,TZS,Africa,Sub-Saharan Africa,Yes,-6.26,34.75
+UMI,UM,581,U.S. Outlying Islands,,USD,Oceania,Micronesia,Territories of US,,
+USA,US,840,United States of America (the),Соединенные Штаты Америки,USD,Americas,Northern America,Yes,39.5,-99.06
+VIR,VI,850,U.S. Virgin Islands,,USD,Americas,Latin America and the Caribbean,Territory of US,,
+URY,UY,858,Uruguay,Уругвай,UYU,Americas,Latin America and the Caribbean,Yes,-32.78,-56.0
+UZB,UZ,860,Uzbekistan,Узбекистан,UZS,Asia,Central Asia,Yes,41.75,63.2
+VUT,VU,548,Vanuatu,Вануату,VUV,Oceania,Melanesia,Yes,-15.22,166.91
+VEN,VE,862,Venezuela (Bolivarian Republic of),Венесуэла (Боливарианская Республика),"VES,VED",Americas,Latin America and the Caribbean,Yes,7.16,-66.16
+VNM,VN,704,Viet Nam,Вьетнам,VND,Asia,South-eastern Asia,Yes,16.65,106.29
+WLF,WF,876,Wallis & Futuna,,XPF,Oceania,Polynesia,Territory of FR,,
+ESH,EH,732,Western Sahara,,MAD,Africa,Northern Africa,In contention,,
+YEM,YE,887,Yemen,Йемен,YER,Asia,Western Asia,Yes,15.91,47.53
+ZMB,ZM,894,Zambia,Замбия,ZMW,Africa,Sub-Saharan Africa,Yes,-13.4,27.73
+ZWE,ZW,716,Zimbabwe,Зимбабве,ZWG,Africa,Sub-Saharan Africa,Yes,-18.91,29.79

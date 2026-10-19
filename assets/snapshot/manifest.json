@@ -1,0 +1,70 @@
+{
+ "updated": "2026-10-19",
+ "files": {
+  "weo_values": {
+   "desc": "IMF WEO: 45 макропоказателей, страны, 1980+ (включая проекции)",
+   "rows": 289643,
+   "source": "github.com/datasets/imf-weo"
+  },
+  "weo_indicators": {
+   "desc": "справочник показателей WEO",
+   "rows": 44,
+   "source": "github.com/datasets/imf-weo"
+  },
+  "gdp": {
+   "desc": "World Bank: ВВП, текущие USD",
+   "rows": 13979,
+   "source": "github.com/datasets/gdp"
+  },
+  "inflation": {
+   "desc": "World Bank: инфляция CPI, % г/г",
+   "rows": 13778,
+   "source": "github.com/datasets/inflation"
+  },
+  "population": {
+   "desc": "World Bank: население",
+   "rows": 17394,
+   "source": "github.com/datasets/population"
+  },
+  "fx_daily": {
+   "desc": "ФРС США (H.10): курсы валют к USD, дневные",
+   "rows": 273701,
+   "source": "github.com/datasets/exchange-rates"
+  },
+  "fx_monthly": {
+   "desc": "ФРС США (H.10): курсы валют к USD, месячные",
+   "rows": 17306,
+   "source": "github.com/datasets/exchange-rates"
+  },
+  "brent": {
+   "desc": "Нефть Brent, дневные",
+   "rows": 9108,
+   "source": "github.com/datasets/oil-prices"
+  },
+  "natgas": {
+   "desc": "Газ Henry Hub, дневные",
+   "rows": 5709,
+   "source": "github.com/datasets/natural-gas"
+  },
+  "gold": {
+   "desc": "Золото, месячные",
+   "rows": 2325,
+   "source": "github.com/datasets/gold-prices"
+  },
+  "vix": {
+   "desc": "Индекс VIX, дневные",
+   "rows": 9278,
+   "source": "github.com/datasets/finance-vix"
+  },
+  "sp500": {
+   "desc": "S&P 500, месячные",
+   "rows": 1869,
+   "source": "github.com/datasets/s-and-p-500"
+  },
+  "us10y": {
+   "desc": "Доходность US 10Y, месячная",
+   "rows": 881,
+   "source": "github.com/datasets/bond-yields-us-10y"
+  }
+ }
+}

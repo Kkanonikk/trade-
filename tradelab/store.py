@@ -107,3 +107,47 @@ def load_facts(con, ticker):
 
 def facts_tickers(con):
     return [r[0] for r in con.execute("SELECT DISTINCT ticker FROM facts ORDER BY ticker")]
+
+
+# ---------------------------------------------------------------- панель страна-год и торговые потоки
+PANEL_SCHEMA = """
+CREATE TABLE IF NOT EXISTS panel (iso3 TEXT NOT NULL, year INTEGER NOT NULL, indicator TEXT NOT NULL, value REAL,
+    PRIMARY KEY (iso3, year, indicator))
+"""
+TRADE_SCHEMA = """
+CREATE TABLE IF NOT EXISTS trade (reporter TEXT NOT NULL, partner TEXT NOT NULL, year INTEGER NOT NULL,
+    flow TEXT NOT NULL, value REAL, PRIMARY KEY (reporter, partner, year, flow))
+"""
+
+
+def connect_macro(path=None):
+    con = connect_world(path)
+    con.execute(PANEL_SCHEMA)
+    con.execute(TRADE_SCHEMA)
+    return con
+
+
+def upsert_panel(con, long):
+    """long: iso3, year, indicator, value."""
+    rows = [(r.iso3, int(r.year), r.indicator, float(r.value)) for r in long.itertuples(index=False)
+            if pd.notna(r.value)]
+    con.executemany("INSERT OR REPLACE INTO panel VALUES (?,?,?,?)", rows)
+    con.commit()
+    return len(rows)
+
+
+def load_panel_long(con):
+    return pd.read_sql_query("SELECT iso3, year, indicator, value FROM panel", con)
+
+
+def upsert_trade(con, df):
+    """df: reporter, partner, year, flow ('X' экспорт / 'M' импорт), value (USD)."""
+    rows = [(r.reporter, r.partner, int(r.year), r.flow, float(r.value)) for r in df.itertuples(index=False)
+            if pd.notna(r.value)]
+    con.executemany("INSERT OR REPLACE INTO trade VALUES (?,?,?,?,?)", rows)
+    con.commit()
+    return len(rows)
+
+
+def load_trade(con):
+    return pd.read_sql_query("SELECT reporter, partner, year, flow, value FROM trade", con)
