@@ -198,3 +198,186 @@ def test_aging_robustness_returns_specs_and_permutation(w):
     rb = aging.robustness(w, "growth")
     assert len(rb) >= 5 and rb["p"].notna().sum() == 1
     assert rb["SE"].dropna().gt(0).all()
+
+
+# ---------------------------------------------------------------- хаб открытых данных и кокпит
+def test_hub_name_mapping_and_parse_thresholds():
+    from tradelab import hub
+    co2 = pd.read_csv(panel.SNAP / "owid_co2.csv.gz", usecols=["country", "iso_code"])
+    ids = hub.name_map(co2)
+    assert ids["united states"] == "USA" and ids["russia"] == "RUS" and ids["korea, rep."] == "KOR"
+    ents = list(ids)[:80]
+    df = pd.DataFrame({"Entity": ents * 10, "Year": np.repeat(np.arange(2001, 2011), len(ents)), "Index": np.random.default_rng(0).normal(size=len(ents) * 10)})
+    long, info = hub.parse_dataset(df, "x", ids)
+    assert long is not None and info[0][1] >= hub.MIN_COUNTRIES
+    few = df[df["Entity"].isin(ents[:5])]
+    assert hub.parse_dataset(few, "x", ids)[0] is None            # мало стран
+    assert hub.classify("Democracy - Polity 5") == "Безопасность и институты" and hub.classify("Daily supply of calories") == "Питание и голод"
+
+
+def test_hub_snapshot_is_loaded_with_sources(w):
+    from tradelab import registry
+    meta = gdata.meta()
+    hubk = [k for k in w.columns if k.startswith("hub:")]
+    assert len(hubk) > 300
+    for k in hubk[:50]:
+        m = meta[k]
+        assert m["source"] == "owid_hub" and m["source_name"] and m["dataset"]
+        assert registry.SOURCES["owid_hub"]["license"]
+    assert (w[hubk].dropna(how="all").index.get_level_values("year") >= 1960).all()
+
+
+def test_cockpit_look_through_and_overlay():
+    from tradelab import cockpit
+    e = cockpit.look_through({"AAPL": 0.3, "EEM": 0.2, "GLD": 0.1, "BTC-USD": 0.1, "ZZZZ": 0.1, "SBER.MOEX": 0.2})
+    assert abs(e.sum() - 1.0) < 1e-9 and e["USA"] == pytest.approx(0.3) and e["CHN"] == pytest.approx(0.06) and e["RUS"] == pytest.approx(0.2)
+    assert e["Без страны"] == pytest.approx(0.2) and e["н/д"] == pytest.approx(0.1)
+    vals = pd.Series({"USA": 10.0, "CHN": 30.0})
+    avg, cover, tbl = cockpit.weighted_overlay(e, vals)
+    assert avg == pytest.approx((0.3 * 10 + 0.06 * 30) / 0.36) and 0 < cover < 1 and tbl.index[0] == "USA"
+
+
+def test_cockpit_factor_exposure_recovers_known_beta():
+    from tradelab import cockpit
+    rng = np.random.default_rng(3)
+    idx = pd.date_range("2018-01-07", periods=300, freq="W-SUN")          # недели, как их строит resample("W")
+    F = pd.DataFrame({"Акции мира (S&P 500)": rng.normal(0, 0.02, 300), "Нефть Brent": rng.normal(0, 0.04, 300)}, index=idx)
+    y = 0.8 * F["Акции мира (S&P 500)"] + 0.1 * F["Нефть Brent"] + rng.normal(0, 0.005, 300)
+    weekly_level = pd.Series((1 + y).cumprod().to_numpy(), index=idx)
+    daily = weekly_level.reindex(pd.date_range(idx[0], idx[-1], freq="D")).ffill()
+    pr = daily.pct_change().dropna()                                      # дневной ряд, из которого недельная доходность восстанавливается в y
+    exp = cockpit.exposures(pr, F)
+    assert abs(exp.loc["Акции мира (S&P 500)", "beta"] - 0.8) < 0.1 and exp.loc["Акции мира (S&P 500)", "t"] > 10
+    est, lo, hi = cockpit.scenario_pnl(exp, {"Акции мира (S&P 500)": -0.2})
+    assert est == pytest.approx(-0.16, abs=0.03) and lo < est < hi
+    with pytest.raises(ValueError):
+        cockpit.exposures(pr.head(10), F)
+
+
+# ---------------------------------------------------------------- «загрузить всё», тема
+def test_load_all_runs_steps_in_parallel_and_isolates_failures(monkeypatch, tmp_path):
+    from tradelab import config, loadall, openmarket, store
+    monkeypatch.setattr(config, "DB_PATH", tmp_path / "m.db")
+    good = pd.DataFrame({"ts": pd.date_range("2024-01-01", periods=5, tz="UTC"), "open": 1.0, "high": 2.0, "low": 0.5, "close": 1.5, "volume": 1.0})
+
+    def fake_load(ticker, start, tf, source):
+        if ticker == "BAD":
+            raise RuntimeError("источник недоступен")
+        return good, "Yahoo Finance"
+    monkeypatch.setattr(openmarket, "load", fake_load)
+    steps = [(f"Котировки {t}", loadall._quotes(t, "D", 2, "Авто")) for t in ["AAA", "BBB", "BAD", "CCC", "DDD", "EEE", "FFF", "GGG"]]
+    steps.append(("Падающий шаг", lambda: 1 / 0))
+    seen = []
+    res = loadall.run(steps, lambda f, label: seen.append(f))
+    ok = {r[0]: r[1] for r in res}
+    assert [r[0] for r in res] == [s[0] for s in steps]                         # порядок отчёта = порядок шагов
+    assert ok["Котировки BAD"] is False and ok["Падающий шаг"] is False and sum(ok.values()) == 7
+    assert seen and abs(max(seen) - 1.0) < 1e-9
+    con = store.connect()
+    assert {t for t in ("AAA", "BBB", "CCC", "DDD", "EEE", "FFF", "GGG") if len(store.load(con, t, "D")) == 5} == {"AAA", "BBB", "CCC", "DDD", "EEE", "FFF", "GGG"}
+
+
+def test_load_all_default_steps_cover_every_online_source():
+    from tradelab import loadall
+    labels = [lab for lab, _ in loadall.build_steps(["AAPL"], include_quotes=True)]
+    for key in ("Мировые рынки", "World Bank", "PortWatch", "UCDP", "Comtrade", "Котировки AAPL"):
+        assert any(key in lab for lab in labels), key
+
+
+def test_theme_top_bar_and_tape_have_no_broker_mentions():
+    from tradelab import theme
+    html = theme.top_bar("Глобальный мир", "обзор", "snap", "встроенный снимок")
+    assert "TRADE LAB" in html and "снимок" in html and "БКС" not in html
+    tape = theme.tape_snapshot()
+    assert "BRENT" in tape and "VIX" in tape and "S&amp;P" not in tape.replace("S&P", "")
+    assert "БКС" not in theme.CSS
+
+
+# ---------------------------------------------------------------- проблемы, паспорта, подключения, настройки
+def test_problem_index_ranks_and_dimensions(w):
+    from tradelab import problems
+    refs = problems.resolve(w)
+    assert all(v is not None for v in refs.values()), [k for k, v in refs.items() if v is None]
+    r = problems.score(w, 2021)
+    comp = r["composite"]
+    assert comp.between(0, 100).all() and len(comp) > 150
+    assert comp["SSD"] > comp["USA"] + 40 and comp["CHE"] < 30 and comp["NGA"] > comp["DEU"]
+    assert set(r["dims"].columns) == set(problems.DIMENSIONS)
+    assert r["dims"].loc["NGA", "hunger"] > r["dims"].loc["NOR", "hunger"]
+
+
+def test_problem_index_weights_and_stability(w):
+    from tradelab import problems
+    base = problems.score(w, 2021)["composite"]
+    only_econ = problems.score(w, 2021, {k: (1.0 if k == "economy" else 0.0) for k in problems.DIMENSIONS})
+    assert only_econ["composite"].corr(only_econ["dims"]["economy"].reindex(only_econ["composite"].index)) > 0.99
+    assert base.corr(only_econ["composite"], method="spearman") < 0.99
+    past = problems.score(w, 2015)["composite"]                    # без заглядывания в будущее: другой год даёт другие значения
+    assert not np.allclose(past.reindex(base.index).dropna().values[:20], base.reindex(past.index).dropna().values[:20])
+
+
+def test_country_diagnosis_and_peers(w):
+    from tradelab import problems
+    r = problems.score(w, 2021)
+    worst, best = problems.diagnosis(r, "NGA")
+    assert worst and all(p >= 60 for _, p in worst) and all(p <= 40 for _, p in best)
+    peers = problems.peers(r, "RUS", 6)
+    assert len(peers) == 6 and "RUS" not in peers.index and peers["distance"].is_monotonic_increasing
+
+
+def test_connections_probe_statuses(monkeypatch):
+    from tradelab import connections
+
+    class Resp:
+        def __init__(self, code, body):
+            self.status_code, self.body = code, body
+            self.raw = type("R", (), {"read": lambda s, n, decode_content=True: body.encode()})()
+
+    def fake_get(url, params=None, headers=None, timeout=None, stream=None):
+        if "yahoo" in url:
+            return Resp(200, '{"chart": {"result": []}}')
+        if "binance" in url:
+            return Resp(200, "{}")
+        if "stooq" in url:
+            return Resp(200, "<html>captcha</html>")                # формат изменился
+        if "frankfurter" in url:
+            raise ConnectionError("нет сети")
+        return Resp(404, "")
+    monkeypatch.setattr(connections.requests, "get", fake_get)
+    df = connections.probe_all()
+    st_ = df.set_index("id")["Статус"]
+    assert st_["yahoo"] == "онлайн" and st_["binance"] == "онлайн" and st_["stooq"] == "формат?" and st_["ecb"] == "ошибка" and st_["moex"] == "ошибка"
+    assert len(df) == len(connections.PROBES) and (df["мс"] >= 0).all()
+
+
+def test_settings_roundtrip_and_env_keys(monkeypatch, tmp_path):
+    from tradelab import config, settings
+    monkeypatch.setattr(settings, "PATH", tmp_path / "s.json")
+    monkeypatch.setattr(config, "ROOT", tmp_path)
+    cur = settings.load()
+    assert cur["as_of_year"] == settings.DEFAULTS["as_of_year"]
+    cur["as_of_year"] = 2018
+    cur["dim_weights"] = {"hunger": 2.0}
+    settings.save(cur)
+    assert settings.load()["as_of_year"] == 2018 and settings.load()["dim_weights"] == {"hunger": 2.0}
+    settings.save_env("FRED_API_KEY", "abcd1234")
+    assert (tmp_path / ".env").read_text().strip() == "FRED_API_KEY=abcd1234" and config.get("FRED_API_KEY") == "abcd1234"
+    settings.save_env("FRED_API_KEY", "")
+    assert "FRED_API_KEY" not in (tmp_path / ".env").read_text() and settings.mask("abcdefgh") == "••••efgh"
+
+
+def test_ask_routes_new_pages(w):
+    from tradelab import ask
+    a = gdata.available(w)
+    assert ask.interpret("паспорт Нигерии", a)["page"] == "ПАСПОРТ"
+    assert ask.interpret("где больше всего проблем", a)["page"] == "ПРОБЛЕМЫ"
+    assert ask.interpret("порт Роттердам", a)["page"] == "МОРЕ"          # «порт» внутри слова «паспорт» больше не срабатывает
+
+
+def test_map_component_has_ranking_gradient_and_flat_default():
+    from tradelab import globe
+    html = globe.build([], [], {"RUS": "#ff0000"}, title="T", info={"RUS": "x"},
+                       grad={"colors": ["#000", "#fff"], "lo": "min", "hi": "max"},
+                       ranking={"top_title": "Top", "bottom_title": "Bottom", "top": [["RUS", "Россия", "1", "#f00"]], "bottom": []})
+    assert "gradbar" in html and 'id="rank"' in html and '"mode":"flat"' in html and "Россия" in html
+    assert "БКС" not in html

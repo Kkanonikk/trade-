@@ -14,10 +14,25 @@ HEAT_LEGEND = [("низкий риск", "#1e2634"), ("средний", "#FF9F1A
 
 
 # ---------------------------------------------------------------- общее
-def world_map(colors, info, title, legend, arcs=None, markers=None, mode="flat", height=620, lon0=20.0):
+def world_map(colors, info, title, legend, arcs=None, markers=None, mode="flat", height=600, lon0=20.0, grad=None, ranking=None, subtitle=""):
     html = globe.build(markers or [], arcs or [], colors, title=title, legend=legend, height=height, lon0=lon0,
-                       info=info, mode=mode)
+                       info=info, mode=mode, grad=grad, ranking=ranking, subtitle=subtitle,
+                       auto_rotate=st.session_state.get("set_rotate", True))
     components.html(html, height=height + 6)
+
+
+def gradient_legend(color_fn, lo, hi, lo_label, hi_label, n=7):
+    """Данные для градиентной шкалы под картой: цвета от lo к hi по функции раскраски."""
+    cols = [color_fn(lo + (hi - lo) * i / (n - 1)) or "#141c29" for i in range(n)]
+    return {"colors": cols, "lo": lo_label, "hi": hi_label}
+
+
+def ranking_panel(values, color_of, name_of, fmt, top_title="Больше всего", bottom_title="Меньше всего", n=8):
+    """Рейтинг для боковой панели карты: верх и низ по значению. color_of(iso) -> цвет, fmt(v) -> текст."""
+    v = values.dropna().sort_values(ascending=False)
+    row = lambda iso, x: [iso, name_of(iso), fmt(float(x)), color_of(iso) or "#556"]
+    return {"top_title": top_title, "bottom_title": bottom_title, "top": [row(i, x) for i, x in v.head(n).items()],
+            "bottom": [row(i, x) for i, x in v.tail(n).iloc[::-1].items()]}
 
 
 def _fmt(v, suffix=""):
@@ -213,8 +228,11 @@ def _crisis_map(probs, title, panel, year, actual=None, model=None):
                 markers.append({"name": countries.short_ru(iso), "iso": iso, "city": "", "lat": c[0], "lon": c[1],
                                 "color": "#FFFFFF", "open": True, "label": "кризис реально начался в этом году"})
     legend = HEAT_LEGEND + ([("белый маркер: кризис случился", "#FFFFFF")] if actual else [])
-    mode = st.radio("Вид карты", ["Карта", "Глобус"], horizontal=True, key=f"mapmode_{title[:8]}")
-    world_map(colors, infos, title, legend, markers=markers, mode="flat" if mode == "Карта" else "globe")
+    mode = st.radio("Вид карты", ["Карта", "Глобус"], horizontal=True, key=f"mapmode_{title[:8]}", label_visibility="collapsed")
+    grad = gradient_legend(lambda x: globe.heat(x, vmax), 0.0, vmax, "ниже · 0%", f"выше · {vmax:.0%}")
+    rk = ranking_panel(probs, lambda i: colors.get(i), countries.short_ru, lambda x: f"{x:.1%}", "Выше риск", "Ниже риск")
+    world_map(colors, infos, title, [l for l in legend if "белый" in l[0]], markers=markers, mode="flat" if mode == "Карта" else "globe",
+              grad=grad, ranking=rk, height=600, subtitle=f"{len(probs)} стран")
 
 
 def _ranking(df, actual=None, n=25):
@@ -551,22 +569,8 @@ def view_sea(version, bump):
     if sc[0].button("Загрузить PortWatch (проливы)"):
         try:
             with st.spinner("Запрашиваю IMF PortWatch…"):
-                meta = maritime.fetch_chokepoint_meta()
-                daily = maritime.fetch_chokepoint_daily(365)
-            cols = maritime.type_columns(daily)
-            st.session_state["pw_cols"] = cols
-            frames = []
-            names = dict(zip(meta["portid"], meta["portname"]))
-            for c in cols:
-                f = daily[["portid", "date", c]].dropna()
-                f = pd.DataFrame({"ts": f["date"], "key": f["portid"].map(names).fillna(f["portid"]) + "|" + c, "value": f[c].astype(float)})
-                frames.append(f)
-            store.upsert_series(con, "choke", pd.concat(frames))
-            lat_lon = meta.set_index("portname")[["lat", "lon"]].to_dict("index")
-            store.upsert_series(con, "choke_pos", pd.DataFrame(
-                [{"ts": pd.Timestamp("2000-01-01", tz="UTC"), "key": f"{n}|lat", "value": float(v["lat"])} for n, v in lat_lon.items()] +
-                [{"ts": pd.Timestamp("2000-01-01", tz="UTC"), "key": f"{n}|lon", "value": float(v["lon"])} for n, v in lat_lon.items()]))
-            st.success(f"Загружено проливов: {meta.shape[0]}, строк трафика: {len(daily)}")
+                n_ports, n_rows = maritime.refresh_portwatch(con)
+            st.success(f"Загружено проливов: {n_ports}, строк трафика: {n_rows}")
             bump()
         except Exception as exc:
             st.error(f"PortWatch: {exc}")
@@ -603,18 +607,12 @@ def view_sea(version, bump):
         daily.columns = [k.split("|")[0] for k in daily.columns]
         rows = {}
         for name in daily.columns:
-            s = daily[name].dropna()
-            if len(s) >= 45:
-                a, b = s.tail(7).mean(), s.tail(90).mean()
-                rows[name] = {"recent": a, "baseline": b, "change": (a / b - 1) if b > 0 else 0.0, "spark": s.tail(60).tolist()}
-        # сопоставляем названия PortWatch с нашим справочником координат и берём координаты из PortWatch для остальных
-        by_pw = {}
-        for pw_name in rows:
-            ref = next((k for k in maritime.CHOKEPOINTS if k.lower().replace(" strait", "") in pw_name.lower() or pw_name.lower() in k.lower()), None)
-            by_pw[pw_name] = ref
+            st_ = maritime.choke_stats(daily[name])
+            if st_:
+                rows[name] = st_
         meta_rows = {}
         for pw_name, a in rows.items():
-            ref = by_pw[pw_name]
+            ref = maritime.match_chokepoint(pw_name)
             if ref:
                 lat, lon, ru = maritime.CHOKEPOINTS[ref]
             elif f"{pw_name}|lat" in pos.columns:
@@ -623,7 +621,9 @@ def view_sea(version, bump):
                 continue
             meta_rows[pw_name] = (lat, lon, ru)
         anomalies = rows
-        st.caption(f"Реальные данные PortWatch: проливов {len(rows)}, тип судов «{tanker_col}».")
+        last = max(a["last"] for a in rows.values()) if rows else None
+        st.caption(f"Реальные данные PortWatch: проливов {len(rows)}, тип судов «{tanker_col}», последняя дата в данных "
+                   f"{last:%d.%m.%Y}. Окна считаются по календарю (7 и 90 суток до этой даты)." if last is not None else "")
     else:
         st.info("Реальные данные по проливам не загружены: нажми «Загрузить PortWatch». Ниже на карте условная модель "
                 "(демо) и справочное положение проливов.")
@@ -661,7 +661,7 @@ def _sea_map(markers, demo_routes, ship_pts):
     html = globe.build([], [], {}, title="МОРЕ: ТАНКЕРЫ И ПРОЛИВЫ" + (" · ДЕМО-МАРШРУТЫ" if demo_routes else ""),
                        legend=[("трафик выше нормы", C["up"]), ("в норме", C["accent"]), ("упал более чем на 15%", C["down"]),
                                ("танкер (реальная позиция)", "#FF9F1A")],
-                       height=660, lon0=55.0, ships=demo_routes, ship_points=ship_pts, chokes=markers, mode="globe")
+                       height=660, lon0=55.0, ships=demo_routes, ship_points=ship_pts, chokes=markers, mode="flat")
     components.html(html, height=666)
 
 
@@ -671,7 +671,7 @@ def view_conflicts(version, bump, use_demo):
     con = store.connect_events()
     stored = store.load_ged(con)
     has_real = len(stored) > 0
-    with st.expander("Загрузить события UCDP GED (реальные, без ключа)", expanded=not has_real):
+    with st.expander("Загрузить события UCDP GED (реальные, без ключа)", expanded=False):
         st.caption("Файл с сайта Uppsala Conflict Data Program (события с гибелью людей, 1989+, с координатами). Если сайт недоступен "
                    "из сети, скачай ZIP вручную и загрузи ниже; для API нужен бесплатный токен.")
         c1, c2 = st.columns(2)
@@ -714,7 +714,8 @@ def view_conflicts(version, bump, use_demo):
     else:
         ged = conflicts.demo_events()
         src = "ДЕМО (синтетика вокруг известных очагов, НЕ реальные события)"
-        st.warning("Показаны синтетические события вокруг известных очагов: чтобы увидеть реальные, загрузи UCDP GED выше.")
+        if st.session_state.get("set_demo_warn", True):
+            st.warning("Показаны синтетические события вокруг известных очагов: реальные загружаются кнопкой «Загрузить все онлайн-данные» слева или в блоке выше.")
     years = sorted(int(y) for y in ged["year"].dropna().unique())
     c1, c2, c3 = st.columns([3, 2, 3])
     yr = c1.select_slider("Период", options=years, value=(years[max(0, len(years) - 3)], years[-1]))
@@ -742,8 +743,8 @@ def view_conflicts(version, bump, use_demo):
                         "detail": f"<b>{r.type}</b>, с {r.since} года<br>{r.note}<br><span style='color:#8B96A5'>справочник составлен вручную "
                                   "по состоянию на 2025 год и может устареть; события берутся из UCDP</span>"})
     html = globe.build([], [], {}, title=f"КОНФЛИКТЫ · {src}", legend=[("очаги насилия (размер = число погибших)", "#FF3C3C")],
-                       height=660, lon0=30.0, conflicts=pts, mode="globe")
-    components.html(html, height=666)
+                       height=640, lon0=30.0, conflicts=pts, mode="flat")
+    components.html(html, height=646)
     a, b = st.columns(2)
     with a:
         by_year = ged.groupby("year")["best"].sum()

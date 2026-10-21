@@ -43,6 +43,26 @@ def _panel_wide():
     return p
 
 
+@lru_cache(maxsize=1)
+def _hub_wide():
+    path = SNAP / "owid_hub.csv.gz"
+    if not path.exists():
+        return None
+    h = pd.read_csv(path, dtype={"value": "float32", "year": "int16", "iso3": "category", "key": "category"})
+    ok = set(countries.table().index)
+    h = h[h["iso3"].isin(ok)]
+    keys = list(h["key"].cat.categories)
+    blocks = []
+    for i in range(0, len(keys), 60):                 # по частям: пиковая память заметно ниже, чем у одного pivot
+        sub = h[h["key"].isin(keys[i:i + 60])].drop_duplicates(["iso3", "year", "key"])
+        sub = sub.assign(iso3=sub["iso3"].astype(str), key=sub["key"].astype(str))
+        blocks.append(sub.set_index(["iso3", "year", "key"])["value"].unstack("key"))
+    del h
+    wide = blocks[0].join(blocks[1:], how="outer") if len(blocks) > 1 else blocks[0]
+    wide.columns = [str(c) for c in wide.columns]
+    return wide.astype("float32")
+
+
 def meta():
     """Метаданные всех доступных показателей: ключ -> {label, unit, group, better, source, projection_from}."""
     m = dict(registry.all_meta())
@@ -55,6 +75,9 @@ def meta():
 def load(extra=None):
     """Единая широкая таблица (iso3, year) x показатели. extra: дополнительная панель (живые WB/IMF)."""
     parts = [_gapminder_wide(), _owid_wide(), _panel_wide()]
+    hubw = _hub_wide()
+    if hubw is not None:
+        parts.append(hubw)
     if extra is not None and len(extra):
         e = extra.copy()
         e.columns = [f"wp:{c}" for c in e.columns]

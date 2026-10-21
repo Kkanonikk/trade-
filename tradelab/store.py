@@ -17,7 +17,8 @@ CREATE TABLE IF NOT EXISTS candles (
 def connect(path=None):
     path = path or config.DB_PATH
     path.parent.mkdir(parents=True, exist_ok=True)
-    con = sqlite3.connect(path)
+    con = sqlite3.connect(path, timeout=60)        # параллельная загрузка пишет из нескольких потоков
+    con.execute("PRAGMA journal_mode=WAL")
     con.execute(SCHEMA)
     return con
 

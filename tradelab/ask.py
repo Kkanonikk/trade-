@@ -14,6 +14,9 @@ INTENTS = [
     (("конфликт", "война", "войн", "боев", "war"), "КОНФЛИКТЫ", None),
     (("валют", "курс", "fx"), "ВАЛЮТЫ", None),
     (("сравни", "сопостав", "compare", "vs"), "СРАВНЕНИЕ", None),
+    (("проблем", "хуже всего", "лучше всего", "тепловая", "рейтинг", "где плохо", "где лучше"), "ПРОБЛЕМЫ", None),
+    (("паспорт", "досье", "профиль страны"), "ПАСПОРТ", None),
+    (("настройк", "подключен", "ключ api"), "НАСТРОЙКИ", None),
 ]
 
 
@@ -55,9 +58,9 @@ def interpret(text, avail):
     t = _norm(text)
     iso = find_country(text)
     inds = find_indicators(text, avail)
-    page = next((p for kws, p, _ in INTENTS if any(k in t for k in kws)), None)
+    page = next((p for kws, p, _ in INTENTS if any(re.search(r"(?<!\w)" + re.escape(k), t) for k in kws)), None)
     if iso and page is None and not inds:
-        page = "СТРАНА"
+        page = "ПАСПОРТ"
     if page is None and inds:
         page = "ИССЛЕДОВАТЕЛЬ"
     if page is None:

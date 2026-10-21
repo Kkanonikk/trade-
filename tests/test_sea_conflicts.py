@@ -174,3 +174,42 @@ def test_globe_embeds_all_layers_as_valid_json_offline():
     data = json.loads(html.split("const D=")[1].split(";\nconst cv")[0])
     assert len(data["ships"]) == len(maritime.ROUTES) and len(data["chokes"]) == 1 and len(data["conflicts"]) == 1
     assert "https://" not in html and len(data["shipPoints"]) == 1
+
+
+def test_demo_tanker_routes_stay_on_water():
+    """Баг: условные маршруты танкеров заходили на сушу (Суматра, Оман, Куба, Швеция, Япония). Теперь маршруты по морскому растру."""
+    import numpy as np
+    from pathlib import Path
+    root = Path(maritime.__file__).resolve().parent.parent / "assets"
+    z = np.load(root / "sea_mask.npz")
+    shape = tuple(z["shape"])
+    land = np.unpackbits(z["land"])[:shape[0] * shape[1]].reshape(shape).astype(bool)
+    res = shape[1] // 360
+    ships = maritime.demo_ships()
+    assert len(ships) == len(maritime.ROUTES)
+    for sh in ships:
+        pts = sh["pts"]
+        assert len(pts) >= 20, sh["name"]
+        bad = [p for p in pts if land[int(np.clip((90 - p[1]) * res, 0, shape[0] - 1)), int(((p[0] + 180) * res) % shape[1])]]
+        assert not bad, f"{sh['name']}: точек на суше {len(bad)}, например {bad[:2]}"
+    first = {r[0]: r[3][0] for r in maritime.ROUTES}
+    for sh in ships:                                    # маршрут начинается рядом с заданным портом
+        lo, la = first[sh["name"]]
+        assert abs(sh["pts"][0][0] - lo) < 5 and abs(sh["pts"][0][1] - la) < 5
+
+
+def test_chokepoint_name_matching_and_calendar_stats():
+    assert maritime.match_chokepoint("Malacca Strait") == "Strait of Malacca"
+    assert maritime.match_chokepoint("Hormuz Strait") == "Strait of Hormuz"
+    assert maritime.match_chokepoint("Suez Canal") == "Suez Canal" and maritime.match_chokepoint("Cape of Good Hope") == "Cape of Good Hope"
+    assert maritime.match_chokepoint("Bab el-Mandeb Strait") == "Bab el-Mandeb Strait"
+    assert maritime.match_chokepoint("Kiel Canal") is None
+    idx = pd.date_range("2025-01-01", periods=200, freq="D")
+    s = pd.Series(100.0, index=idx)
+    s[-7:] = 50.0
+    st_ = maritime.choke_stats(s)
+    assert st_["change"] < -0.4 and st_["recent"] == 50.0
+    gappy = s.drop(s.index[20:60])                       # пропущенные дни не должны считаться нулями и сдвигать окна
+    g = maritime.choke_stats(gappy)
+    assert g["recent"] == 50.0 and abs(g["baseline"] - st_["baseline"]) < 1e-9
+    assert maritime.choke_stats(s.head(20)) is None

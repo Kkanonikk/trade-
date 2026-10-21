@@ -9,6 +9,7 @@
 """
 import json
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -219,6 +220,47 @@ ROUTES = [
 ]
 
 
+_STOP = {"strait", "straits", "canal", "of", "the", "channel", "passage"}
+
+
+def _tokens(name):
+    import re
+    return {t for t in re.split(r"[^a-z0-9]+", name.lower()) if t and t not in _STOP}
+
+
+def match_chokepoint(pw_name):
+    """Название пролива из PortWatch -> ключ справочника CHOKEPOINTS (по общим словам без «Strait/Canal/of»), иначе None.
+    Так «Malacca Strait» совпадает с «Strait of Malacca», а «Gibraltar Strait» с «Gibraltar Strait»."""
+    t = _tokens(pw_name)
+    if not t:
+        return None
+    best, score = None, 0.0
+    for k in CHOKEPOINTS:
+        kt = _tokens(k)
+        inter = len(t & kt)
+        if inter and inter / max(len(t | kt), 1) > score:
+            best, score = k, inter / max(len(t | kt), 1)
+    return best if score >= 0.5 else None
+
+
+def choke_stats(s, short=7, long=90):
+    """Сравнение последних short суток со средним за long суток по календарю (пропущенные дни не считаются нулями).
+    s: Series с датами в индексе. Возвращает dict или None, если рядов мало."""
+    s = s.dropna().astype(float)
+    if len(s) < 45:
+        return None
+    s.index = pd.DatetimeIndex(s.index).normalize()
+    s = s[~s.index.duplicated(keep="last")]
+    full = s.reindex(pd.date_range(s.index.min(), s.index.max(), freq="D"))
+    end = full.index.max()
+    recent = full[full.index > end - pd.Timedelta(days=short)].mean()
+    base = full[full.index > end - pd.Timedelta(days=long)].mean()
+    if not np.isfinite(recent) or not np.isfinite(base):
+        return None
+    return {"recent": float(recent), "baseline": float(base), "change": float(recent / base - 1) if base > 0 else 0.0,
+            "spark": [float(x) if np.isfinite(x) else 0.0 for x in full.tail(60)], "last": end}
+
+
 def route_polyline(points, per_segment=14):
     """Плотная линия вдоль маршрута: сегменты по дуге большого круга между опорными точками [(lon, lat), ...]."""
     out = []
@@ -228,9 +270,18 @@ def route_polyline(points, per_segment=14):
     return out
 
 
+def _sea_routes():
+    """Маршруты, построенные scripts/build_sea_routes.py по растру суши (без заходов на сушу); пусто, если файла нет."""
+    path = Path(__file__).resolve().parent.parent / "assets" / "sea_routes.json"
+    return json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+
+
 def demo_ships():
-    """Данные для анимации в globe.build: список маршрутов с числом судов. Условные, не AIS."""
-    return [{"name": n, "n": cnt, "color": col, "pts": route_polyline(pts), "demo": True} for n, cnt, col, pts in ROUTES]
+    """Данные для анимации в globe.build: список маршрутов с числом судов. Условные, не AIS. Линии идут по воде:
+    берутся из assets/sea_routes.json, а если файла нет, строятся по дугам между опорными точками (могут задевать сушу)."""
+    ready = _sea_routes()
+    return [{"name": n, "n": cnt, "color": col, "pts": [tuple(p) for p in ready[n]] if n in ready else route_polyline(pts), "demo": True}
+            for n, cnt, col, pts in ROUTES]
 
 
 def _txt(v):
@@ -251,3 +302,21 @@ def ships_from_ais(df, class_filter="Танкер"):
                     "name": _txt(r.get("name")) or str(r.get("mmsi")), "sog": float(sog) if sog is not None and pd.notna(sog) else None,
                     "dest": _txt(r.get("destination")), "type": _txt(r.get("class"))})
     return out
+
+
+def refresh_portwatch(con, days=365):
+    """Загружает проходы судов по проливам (IMF PortWatch) в таблицы series (kind=choke, choke_pos). Возвращает (проливов, строк)."""
+    from . import store
+    meta = fetch_chokepoint_meta()
+    daily = fetch_chokepoint_daily(days)
+    cols = type_columns(daily)
+    names = dict(zip(meta["portid"], meta["portname"]))
+    frames = []
+    for c in cols:
+        f = daily[["portid", "date", c]].dropna()
+        frames.append(pd.DataFrame({"ts": f["date"], "key": f["portid"].map(names).fillna(f["portid"]) + "|" + c, "value": f[c].astype(float)}))
+    store.upsert_series(con, "choke", pd.concat(frames))
+    ts0 = pd.Timestamp("2000-01-01", tz="UTC")
+    pos = [{"ts": ts0, "key": f"{r.portname}|{ax}", "value": float(getattr(r, ax))} for r in meta.itertuples() for ax in ("lat", "lon")]
+    store.upsert_series(con, "choke_pos", pd.DataFrame(pos))
+    return int(meta.shape[0]), int(len(daily))

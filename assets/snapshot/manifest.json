@@ -115,7 +115,13 @@
    "desc": "Баланс массы ледников: WGMS",
    "rows": 68,
    "source": "github.com/datasets/glacier-mass-balance"
+  },
+  "owid_hub": {
+   "desc": "Our World in Data: 552 показателей из 199 наборов",
+   "rows": 3337370,
+   "source": "github.com/owid/owid-datasets"
   }
  },
- "global_updated": "2026-10-19"
+ "global_updated": "2026-10-19",
+ "hub_updated": "2026-10-21"
 }
