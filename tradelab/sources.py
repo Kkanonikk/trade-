@@ -46,6 +46,17 @@ def parse_stooq_csv(text):
     return df.dropna(subset=["close"])[OHLC].reset_index(drop=True)
 
 
+def parse_binance_klines(rows):
+    """Ответ /api/v3/klines: список списков [openTime, open, high, low, close, volume, closeTime, ...]."""
+    if not rows:
+        return _empty()
+    df = pd.DataFrame([r[:6] for r in rows], columns=["ts", "open", "high", "low", "close", "volume"])
+    df["ts"] = pd.to_datetime(df["ts"], unit="ms", utc=True)
+    for c in OHLC[1:]:
+        df[c] = pd.to_numeric(df[c], errors="coerce")
+    return df.dropna(subset=["close"]).reset_index(drop=True)
+
+
 def parse_moex_candles(payload):
     block = payload.get("candles") or {}
     cols, data = block.get("columns", []), block.get("data", [])
@@ -105,13 +116,23 @@ def _span(years):
     return end - timedelta(days=int(365.25 * years)), end
 
 
-def fetch_yahoo(symbol, years=5):
+def fetch_yahoo(symbol, years=5, interval="1d"):
+    """Свечи Yahoo (неофициальный открытый эндпоинт). interval: 1d, 1wk, 1mo, 60m (60m доступен только за ~2 года)."""
     start, end = _span(years)
+    if interval == "60m":
+        start = max(start, end - timedelta(days=700))
     payload = get(f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}",
                   params={"period1": int(datetime.combine(start, datetime.min.time()).timestamp()),
                           "period2": int(datetime.combine(end, datetime.min.time()).timestamp()) + 86400,
-                          "interval": "1d"}, as_json=True)
-    return parse_yahoo_chart(payload)
+                          "interval": interval}, as_json=True)
+    df = parse_yahoo_chart(payload)
+    if interval == "60m":          # parse_yahoo_chart режет время до даты; для часовых сохраняем время
+        r = payload["chart"]["result"][0]
+        ts = pd.to_datetime(r.get("timestamp", []), unit="s", utc=True)
+        q = r["indicators"]["quote"][0]
+        df = pd.DataFrame({"ts": ts, "open": q.get("open"), "high": q.get("high"), "low": q.get("low"),
+                           "close": q.get("close"), "volume": q.get("volume")}).dropna(subset=["close"]).reset_index(drop=True)[OHLC]
+    return df
 
 
 def fetch_stooq(symbol, years=5):
@@ -119,6 +140,28 @@ def fetch_stooq(symbol, years=5):
     text = get("https://stooq.com/q/d/l/", params={"s": symbol, "i": "d", "d1": start.strftime("%Y%m%d"),
                                                     "d2": end.strftime("%Y%m%d")})
     return parse_stooq_csv(text)
+
+
+BINANCE_INTERVALS = {"D": "1d", "W": "1w", "MN": "1M", "H4": "4h", "H1": "1h", "M15": "15m"}
+
+
+def fetch_binance(symbol, years=5, interval="1d"):
+    """Свечи Binance (публичный API без ключа, до 1000 баров на запрос, постранично вперёд)."""
+    start, end = _span(years)
+    cursor = int(datetime.combine(start, datetime.min.time(), tzinfo=timezone.utc).timestamp() * 1000)
+    stop = int(datetime.combine(end, datetime.min.time(), tzinfo=timezone.utc).timestamp() * 1000) + 86_400_000
+    frames = []
+    for _ in range(40):
+        rows = get("https://api.binance.com/api/v3/klines", params={"symbol": symbol, "interval": interval, "startTime": cursor,
+                                                                    "endTime": stop, "limit": 1000}, as_json=True)
+        df = parse_binance_klines(rows)
+        if df.empty:
+            break
+        frames.append(df)
+        if len(rows) < 1000:
+            break
+        cursor = int(rows[-1][0]) + 1
+    return pd.concat(frames).drop_duplicates("ts").reset_index(drop=True) if frames else _empty()
 
 
 MOEX_INTERVALS = {"M1": 1, "H1": 60, "D": 24, "W": 7, "MN": 31}
@@ -220,7 +263,8 @@ def probe_all():
     checks = [
         ("Yahoo Finance (индексы, сырьё)", lambda: len(fetch_yahoo("^GSPC", 0.05))),
         ("Stooq (запасной для индексов)", lambda: len(fetch_stooq("^spx", 0.05))),
-        ("MOEX ISS (акции РФ без токена)", lambda: len(fetch_moex("SBER", 0.05))),
+        ("Binance (крипта, публичный API)", lambda: len(fetch_binance("BTCUSDT", 0.05))),
+        ("MOEX ISS (акции РФ, без токена)", lambda: len(fetch_moex("SBER", 0.05))),
         ("Frankfurter / ECB (валюты)", lambda: len(fetch_fx_ecb(0.05))),
         ("ЦБ РФ (курсы рубля)", lambda: len(fetch_fx_cbr(0.05))),
         ("FRED (ставки, доходности)", lambda: len(fetch_fred("DFF"))),

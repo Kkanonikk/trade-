@@ -1,4 +1,4 @@
-"""Автономный режим без браузера: по расписанию обновляет данные БКС, считает сигналы
+"""Автономный режим без браузера: по расписанию обновляет открытые котировки, считает сигналы
 и делает ребаланс бумажного счёта. Реальные заявки не отправляются.
 
     python scripts/autotrader.py --every 60        # каждые 60 минут
@@ -13,15 +13,15 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from tradelab import autotrade, config, paper, ru_data, store  # noqa: E402
+from tradelab import autotrade, config, openmarket, paper, store  # noqa: E402
 
 
 def step(args):
     con = store.connect()
     for ticker in config.DEFAULT_TICKERS:
         last = store.last_ts(con, ticker, args.tf)
-        start = last.to_pydatetime() if last is not None else ru_data.default_start(4)
-        df = ru_data.load(ticker, start, args.tf, args.source)
+        start = last.to_pydatetime() if last is not None else openmarket.default_start(4)
+        df, _ = openmarket.load(ticker, start, args.tf, args.source)
         if not df.empty:
             store.upsert(con, ticker, args.tf, df)
     frames = {t: store.load(con, t, args.tf) for t in config.DEFAULT_TICKERS}
@@ -44,7 +44,7 @@ def main():
     ap.add_argument("--max-weight", type=float, default=0.25)
     ap.add_argument("--every", type=int, default=60, help="период в минутах")
     ap.add_argument("--once", action="store_true")
-    ap.add_argument("--source", default="Авто", choices=ru_data.SOURCES, help="Авто: БКС при наличии токена, иначе MOEX")
+    ap.add_argument("--source", default="Авто", choices=openmarket.SOURCES, help="Авто: Yahoo Finance с запасными Stooq и Binance")
     args = ap.parse_args()
     while True:
         try:

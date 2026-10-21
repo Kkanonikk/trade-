@@ -853,9 +853,9 @@ def view_horizon(version):
         infl = st.slider("Ожидаемая инфляция, % в год", 0.0, 8.0, 2.7, 0.1, key="pf_infl") / 100
         est = m.estimate(infl=infl)
         c1, c2, c3 = st.columns(3)
-        start = c1.number_input("Стартовый капитал, ₽ (в сегодняшних ценах)", 10_000.0, 1e9, 1_000_000.0, 50_000.0)
-        contrib = c2.number_input("Ежегодный взнос, ₽ (в сегодняшних ценах)", 0.0, 1e8, 100_000.0, 10_000.0)
-        target = c3.number_input("Цель к концу срока, ₽", 0.0, 1e10, 3_000_000.0, 100_000.0)
+        start = c1.number_input("Стартовый капитал, $ (в сегодняшних ценах)", 10_000.0, 1e9, 1_000_000.0, 50_000.0)
+        contrib = c2.number_input("Ежегодный взнос, $ (в сегодняшних ценах)", 0.0, 1e8, 100_000.0, 10_000.0)
+        target = c3.number_input("Цель к концу срока, $", 0.0, 1e10, 3_000_000.0, 100_000.0)
         w1, w2, w3, w4 = st.columns(4)
         weights = {"equity": w1.slider("Акции США, %", 0, 100, 60), "bond": w2.slider("Облигации США, %", 0, 100, 30),
                    "cash": w3.slider("Деньги, %", 0, 100, 5), "gold": w4.slider("Золото, %", 0, 100, 5)}
@@ -871,10 +871,10 @@ def view_horizon(version):
                                                cash_real=cash_real, gold_real=gold_real, shift=longrun.SCENARIOS[scen])
         sm = longrun.summarize_wealth(wealth, start, contrib, target)
         k = st.columns(5)
-        k[0].metric("Медиана (реально)", f"{sm['p50']:,.0f} ₽")
-        k[1].metric("Плохой исход (P5)", f"{sm['p5']:,.0f} ₽")
-        k[2].metric("Хороший исход (P95)", f"{sm['p95']:,.0f} ₽")
-        k[3].metric("Вероятность реального убытка", pct(sm["prob_real_loss"], 0), f"вложено {sm['invested']:,.0f} ₽", delta_color="off")
+        k[0].metric("Медиана (реально)", f"{sm['p50']:,.0f} $")
+        k[1].metric("Плохой исход (P5)", f"{sm['p5']:,.0f} $")
+        k[2].metric("Хороший исход (P95)", f"{sm['p95']:,.0f} $")
+        k[3].metric("Вероятность реального убытка", pct(sm["prob_real_loss"], 0), f"вложено {sm['invested']:,.0f} $", delta_color="off")
         k[4].metric("Вероятность достичь цели", pct(sm.get("prob_target", float("nan")), 0))
         t = np.arange(wealth.shape[1])
         q = np.percentile(wealth, [5, 25, 50, 75, 95], axis=0)
@@ -886,7 +886,7 @@ def view_horizon(version):
         fig.add_scatter(mode="lines", x=t, y=q[2], line=dict(color=C["accent"], width=2), name="Медиана")
         if target:
             fig.add_hline(y=target, line=dict(color=C["up"], dash="dash"), annotation_text="цель")
-        fig.update_layout(xaxis_title="Годы", yaxis_title="Капитал в сегодняшних ценах, ₽")
+        fig.update_layout(xaxis_title="Годы", yaxis_title="Капитал в сегодняшних ценах, $")
         st.plotly_chart(style(fig, 420), width="stretch")
         rows = []
         for name, shift in longrun.SCENARIOS.items():
@@ -900,7 +900,7 @@ def view_horizon(version):
             "Убыток": st.column_config.NumberColumn(format="percent"), "Цель": st.column_config.NumberColumn(format="percent")})
         st.caption("Модель: средние доходности акций и облигаций США берутся из CAPE- и ставка-моделей, форма распределения и связь "
                    "акций с облигациями из реальной истории с 1871 года (блочный бутстреп по 3 года). Деньги и золото это допущения. "
-                   "Реальная доходность считается в долларовых активах и не учитывает курс рубля, налоги и комиссии.")
+                   "Реальная доходность считается в долларовых активах и не учитывает курсы валют, налоги и комиссии.")
     with tabs[2]:
         source = "snapshot" if not len(store.load_panel_long(store.connect_macro())) else "live"
         hz = st.radio("Горизонт, лет", [5, 10], horizontal=True, key="g_h")

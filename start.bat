@@ -29,7 +29,7 @@ if errorlevel 1 echo Необязательный пакет ripser не уст�
 echo ok> .venv\.installed
 :installed
 
-rem --- токен нужен только для данных БКС; глобальный режим работает без него
+rem --- .env необязателен: ключи для открытых источников не нужны
 if not exist .env copy .env.example .env >nul
 
 echo.

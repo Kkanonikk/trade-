@@ -1,4 +1,4 @@
-"""Настройки из .env (токен и адреса API лежат только там, не в коде)."""
+"""Настройки из .env (необязательные адреса и контакт; ключи для открытых источников не нужны)."""
 import os
 from pathlib import Path
 
@@ -6,12 +6,22 @@ ROOT = Path(__file__).resolve().parent.parent
 DATA_DIR = ROOT / "data"
 DB_PATH = DATA_DIR / "market.db"
 
-DEFAULT_TICKERS = [
-    "SBER", "GAZP", "LKOH", "GMKN", "ROSN", "NVTK", "YDEX", "TATN",
-    "SNGS", "PLZL", "CHMF", "NLMK", "MGNT", "MTSS", "MOEX", "VTBR",
-    "ALRS", "PHOR", "AFLT", "T",
-]
-CLASS_CODE = "TQBR"
+# Мировой универсум по умолчанию: тикер -> (название, сектор). Тикеры в формате Yahoo Finance.
+UNIVERSE = {
+    "AAPL": ("Apple", "Технологии"), "MSFT": ("Microsoft", "Технологии"), "NVDA": ("Nvidia", "Технологии"),
+    "GOOGL": ("Alphabet", "Технологии"), "AMZN": ("Amazon", "Потребительский"), "META": ("Meta", "Технологии"),
+    "TSLA": ("Tesla", "Потребительский"), "AVGO": ("Broadcom", "Технологии"), "TSM": ("TSMC", "Технологии"),
+    "ASML": ("ASML", "Технологии"), "SAP": ("SAP", "Технологии"), "JPM": ("JPMorgan", "Финансы"),
+    "V": ("Visa", "Финансы"), "BRK-B": ("Berkshire Hathaway", "Финансы"), "HSBC": ("HSBC", "Финансы"),
+    "XOM": ("Exxon Mobil", "Нефть и газ"), "CVX": ("Chevron", "Нефть и газ"), "SHEL": ("Shell", "Нефть и газ"),
+    "JNJ": ("Johnson & Johnson", "Здравоохранение"), "LLY": ("Eli Lilly", "Здравоохранение"), "NVO": ("Novo Nordisk", "Здравоохранение"),
+    "WMT": ("Walmart", "Ритейл"), "KO": ("Coca-Cola", "Потребительский"), "NSRGY": ("Nestlé", "Потребительский"),
+    "TM": ("Toyota", "Транспорт"), "BHP": ("BHP", "Металлы и добыча"), "RIO": ("Rio Tinto", "Металлы и добыча"),
+    "BABA": ("Alibaba", "Технологии"), "SPY": ("S&P 500 ETF", "Фонды"), "QQQ": ("Nasdaq 100 ETF", "Фонды"),
+    "EEM": ("Развивающиеся рынки ETF", "Фонды"), "GLD": ("Золото ETF", "Сырьё"), "TLT": ("Облигации США 20+ ETF", "Облигации"),
+    "BTC-USD": ("Биткоин", "Крипта"), "ETH-USD": ("Эфир", "Крипта"),
+}
+DEFAULT_TICKERS = list(UNIVERSE)
 
 
 def _load_dotenv():
@@ -23,7 +33,7 @@ def _load_dotenv():
         if not line or line.startswith("#") or "=" not in line:
             continue
         key, _, value = line.partition("=")
-        os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
+        os.environ.setdefault(key.strip(), value.strip().strip('"').strip("\'"))
 
 
 _load_dotenv()
@@ -32,15 +42,6 @@ _load_dotenv()
 def get(name, default=""):
     return os.environ.get(name, default)
 
-SECTORS = {
-    "SBER": "Финансы", "VTBR": "Финансы", "MOEX": "Финансы", "T": "Финансы",
-    "GAZP": "Нефть и газ", "LKOH": "Нефть и газ", "ROSN": "Нефть и газ", "NVTK": "Нефть и газ",
-    "TATN": "Нефть и газ", "SNGS": "Нефть и газ",
-    "GMKN": "Металлы и добыча", "PLZL": "Металлы и добыча", "CHMF": "Металлы и добыча",
-    "NLMK": "Металлы и добыча", "ALRS": "Металлы и добыча",
-    "PHOR": "Химия", "MGNT": "Ритейл", "MTSS": "Телеком", "AFLT": "Транспорт", "YDEX": "IT",
-}
-
 
 def sector(ticker):
-    return SECTORS.get(ticker, "Прочее")
+    return UNIVERSE.get(ticker, ("", "Прочее"))[1]

@@ -63,10 +63,10 @@ def test_latest_forecast():
     assert np.isfinite(value)
 
 
-def test_parse_bars():
-    from tradelab.bcs import parse_bars
-    df = parse_bars({"bars": [{"time": "2025-01-02T07:00:00Z", "open": 1, "high": 2,
-                               "low": 0.5, "close": 1.5, "volume": 10}]})
+def test_parse_binance_klines():
+    from tradelab.sources import parse_binance_klines
+    df = parse_binance_klines([[1735689600000, "1", "2", "0.5", "1.5", "10", 1735775999999, "0"]])
     assert list(df.columns) == ["ts", "open", "high", "low", "close", "volume"]
-    assert df["close"].iloc[0] == 1.5
-    assert parse_bars({"bars": []}).empty
+    assert df["close"].iloc[0] == 1.5 and df["ts"].iloc[0].year == 2025
+    assert parse_binance_klines([]).empty
+
