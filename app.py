@@ -7,9 +7,9 @@ import plotly.graph_objects as go
 import streamlit as st
 from plotly.subplots import make_subplots
 
-from tradelab import (autotrade, backtest, compliance, config, demo, indicators, models, optimize,
-                      paper, risk, ru_data, sources, store, strategies, views, views_global, views_worldmode, worlddata)
-from tradelab.bcs import TIMEFRAMES, BcsClient, BcsError
+from tradelab import (autotrade, backtest, compliance, config, demo, indicators, models, openmarket, optimize,
+                      paper, risk, sources, store, strategies, views, views_global, views_worldmode, worlddata)
+from tradelab.openmarket import TIMEFRAMES
 from tradelab.ui import C, pct, style
 
 st.set_page_config(page_title="Trade Lab Terminal", layout="wide", page_icon="📈")
@@ -37,8 +37,11 @@ with st.sidebar:
     app_mode = st.radio("Режим", ["🌍 Глобальный мир", "📈 Портфель и рынки"], key="app_mode",
                         help="Глобальный мир: страны, демография, голод, кризисы, климат, торговля, прогнозы и история.")
     GLOBAL = app_mode.startswith("🌍")
-    has_token = bool(config.get("BCS_REFRESH_TOKEN"))
-    use_demo = st.toggle("Демо-режим (синтетические данные)", value=not has_token,
+    try:
+        has_data = bool(store.summary(store.connect()).shape[0])
+    except Exception:
+        has_data = False
+    use_demo = st.toggle("Демо-режим (синтетические данные)", value=not has_data,
                          help="Случайные котировки для знакомства с интерфейсом. Не реальный рынок. В глобальном режиме влияет "
                               "только на демо-потоки судов и конфликтов.")
     tf, tickers, years, cost_bps, allow_short, port_src = "D", list(config.DEFAULT_TICKERS), 4, 5.0, False, "Равные веса"
@@ -55,8 +58,8 @@ with st.sidebar:
         st.divider()
         port_src = st.radio("Портфель для анализа", ["Paper-счёт", "Равные веса", "Свои веса"],
                             help="Используется на вкладках РИСК и ФАКТОРЫ")
-        if not has_token and not use_demo:
-            st.warning("Токен БКС не задан: скопируй .env.example в .env и вставь токен.")
+        if not has_data and not use_demo:
+            st.info("В базе пока нет котировок: открой вкладку ДАННЫЕ и нажми «Загрузить / обновить данные» (ключи не нужны).")
 
 if "version" not in st.session_state:
     st.session_state.version = 0
@@ -236,12 +239,12 @@ with tab_sources:
     views_global.view_sources()
 
 with tab_struct:
-    universe = st.radio("Универсум", ["Мировые индексы", "Акции РФ"], horizontal=True)
+    universe = st.radio("Универсум", ["Мировые индексы", "Бумаги из портфеля"], horizontal=True)
     if universe == "Мировые индексы":
         views.view_structure(worlddata.returns(world["index"]) if not world["index"].empty else None,
                              "мировые индексы")
     else:
-        views.view_structure(R_all, "акции РФ")
+        views.view_structure(R_all, "бумаги портфеля")
 
 with tab_macro:
     views.view_macro(world)
@@ -309,7 +312,7 @@ with tab_risk:
         if weights_fallback:
             st.info("На paper-счёте пока нет позиций: показываю равные веса. "
                     "Позиции появятся после ребаланса на вкладке «АВТОТОРГОВЛЯ».")
-        capital = st.number_input("Капитал для расчёта потерь, ₽", 10_000.0, 1e10, float(equity_now), 10_000.0)
+        capital = st.number_input("Капитал для расчёта потерь, $", 10_000.0, 1e10, float(equity_now), 10_000.0)
         pr = risk.portfolio_returns(R, weights)
         s = risk.summary(pr)
         bench = R.mean(axis=1)
@@ -318,9 +321,9 @@ with tab_risk:
         m[1].metric("Волатильность", pct(s["ann_vol"]))
         m[2].metric("Шарп (rf=0)", f"{s['sharpe']:.2f}")
         m[3].metric("Макс. просадка", pct(s["max_drawdown"]))
-        m[4].metric("VaR 95% (1д)", f"{s['var95'] * capital:,.0f} ₽", pct(-s["var95"], 2), delta_color="off")
-        m[5].metric("CVaR 95% (1д)", f"{s['cvar95'] * capital:,.0f} ₽", pct(-s["cvar95"], 2), delta_color="off")
-        st.caption(f"VaR 99%: {s['var99'] * capital:,.0f} ₽ · CVaR 99%: {s['cvar99'] * capital:,.0f} ₽ · "
+        m[4].metric("VaR 95% (1д)", f"{s['var95'] * capital:,.0f} $", pct(-s["var95"], 2), delta_color="off")
+        m[5].metric("CVaR 95% (1д)", f"{s['cvar95'] * capital:,.0f} $", pct(-s["cvar95"], 2), delta_color="off")
+        st.caption(f"VaR 99%: {s['var99'] * capital:,.0f} $ · CVaR 99%: {s['cvar99'] * capital:,.0f} $ · "
                    f"бета к равновзвешенному индексу: {risk.beta(pr, bench):.2f}. "
                    "Историческая оценка: прошлое не гарантирует будущее.")
         a, b = st.columns(2)
@@ -354,16 +357,16 @@ with tab_risk:
             fig.add_scatter(x=days, y=q[1], fill="tonexty", fillcolor="rgba(255,159,26,0.30)",
                             line=dict(width=0), name="25–75%")
             fig.add_scatter(x=days, y=q[2], line=dict(color=C["accent"], width=2), name="Медиана")
-            fig.update_layout(xaxis_title="Торговых дней вперёд", yaxis_title="Капитал, ₽")
+            fig.update_layout(xaxis_title="Торговых дней вперёд", yaxis_title="Капитал, $")
             st.markdown("**Веер сценариев на 21 день** (бутстрап исторических дней)")
             st.plotly_chart(style(fig, 360), width="stretch")
         with b:
             table, port_beta = risk.stress_table(R, weights)
-            table["Потери, ₽"] = table["Потери портфеля"] * capital
+            table["Потери, $"] = table["Потери портфеля"] * capital
             st.markdown(f"**Стресс-тест** (бета портфеля {port_beta:.2f})")
             st.dataframe(table, hide_index=True, width="stretch", column_config={
                 "Потери портфеля": st.column_config.NumberColumn(format="percent"),
-                "Потери, ₽": st.column_config.NumberColumn(format="localized")})
+                "Потери, $": st.column_config.NumberColumn(format="localized")})
             worst = risk.worst_days(pr, 5)
             st.markdown("**5 худших дней в истории портфеля**")
             st.dataframe(pd.DataFrame({"Дата": worst.index.strftime("%Y-%m-%d"), "Доходность": worst.values}),
@@ -380,8 +383,8 @@ with tab_risk:
         pvar95, comp95 = risk.parametric_var(R, weights, 0.95, cov)
         pvar99, _ = risk.parametric_var(R, weights, 0.99, cov)
         a, b, c = st.columns(3)
-        a.metric("Параметрическая VaR 95%", f"{pvar95 * capital:,.0f} ₽", f"историческая {s['var95'] * capital:,.0f} ₽", delta_color="off")
-        b.metric("Параметрическая VaR 99%", f"{pvar99 * capital:,.0f} ₽")
+        a.metric("Параметрическая VaR 95%", f"{pvar95 * capital:,.0f} $", f"историческая {s['var95'] * capital:,.0f} $", delta_color="off")
+        b.metric("Параметрическая VaR 99%", f"{pvar99 * capital:,.0f} $")
         hhi, n_eff = risk.concentration(weights)
         c.metric("Эффективное число бумаг", f"{n_eff:.1f}", f"HHI {hhi:.3f}", delta_color="off")
         a, b = st.columns(2)
@@ -389,7 +392,7 @@ with tab_risk:
             cv = (comp95 * capital)
             cv = cv[cv.abs() > 0].sort_values(ascending=False)
             fig = go.Figure(go.Bar(x=cv.index, y=cv.values, marker_color=C["down"]))
-            fig.update_layout(yaxis_title="Вклад в VaR 95%, ₽")
+            fig.update_layout(yaxis_title="Вклад в VaR 95%, $")
             st.markdown("**Компонентная VaR**: сколько каждая бумага добавляет к дневному риску")
             st.plotly_chart(style(fig, 330), width="stretch")
         with b:
@@ -422,9 +425,9 @@ with tab_risk:
                                        disabled=["Тикер"], key="shock_editor")
             shocks = dict(zip(shocks_df["Тикер"], shocks_df["Шок, %"] / 100))
             impact = risk.what_if(weights, shocks)
-            st.metric("Влияние на портфель", f"{impact:+.2%}", f"{impact * capital:+,.0f} ₽", delta_color="off")
+            st.metric("Влияние на портфель", f"{impact:+.2%}", f"{impact * capital:+,.0f} $", delta_color="off")
         csv = pd.DataFrame({"Вес": pd.Series(weights), "Вклад в риск": rc,
-                            "Вклад в VaR95, ₽": comp95 * capital}).fillna(0).to_csv().encode("utf-8-sig")
+                            "Вклад в VaR95, $": comp95 * capital}).fillna(0).to_csv().encode("utf-8-sig")
         st.download_button("Скачать риск-отчёт (CSV)", csv, "risk_report.csv", "text/csv")
 
 # ---------------------------------------------------------------- ФАКТОРЫ
@@ -658,14 +661,14 @@ with tab_scan:
 with tab_auto:
     st.markdown(f"<div style='background:{C['panel']};border-left:3px solid {C['violet']};padding:10px 14px;"
                 f"border-radius:4px'><b>Бумажный счёт.</b> Сделки симулируются локально по последним ценам из базы. "
-                f"Реальные заявки в БКС не отправляются, токен только на чтение.</div>", unsafe_allow_html=True)
+                f"Реальные заявки не отправляются.</div>", unsafe_allow_html=True)
     eq = broker.equity(last_prices)
     pnl = eq - broker.start_cash
     m = st.columns(5)
-    m[0].metric("Капитал", f"{eq:,.0f} ₽", f"{pnl / broker.start_cash:+.2%}")
-    m[1].metric("Свободные деньги", f"{broker.cash:,.0f} ₽")
+    m[0].metric("Капитал", f"{eq:,.0f} $", f"{pnl / broker.start_cash:+.2%}")
+    m[1].metric("Свободные деньги", f"{broker.cash:,.0f} $")
     m[2].metric("Позиций", len(broker.positions()))
-    m[3].metric("Старт", f"{broker.start_cash:,.0f} ₽")
+    m[3].metric("Старт", f"{broker.start_cash:,.0f} $")
     killed = broker.kill_switch()
     m[4].metric("Аварийный стоп", "ВКЛЮЧЁН" if killed else "выключен")
 
@@ -737,7 +740,7 @@ with tab_auto:
             limits_ss.max_var95 = st.slider("Макс. дневная VaR 95%", 0.005, 0.10, limits_ss.max_var95, 0.005)
             limits_ss.max_turnover = st.slider("Макс. оборот за ребаланс", 0.1, 2.0, limits_ss.max_turnover, 0.1)
         with st.expander("Сбросить paper-счёт"):
-            new_cash = st.number_input("Стартовый капитал, ₽", 10_000.0, 1e10, 1_000_000.0, 10_000.0)
+            new_cash = st.number_input("Стартовый капитал, $", 10_000.0, 1e10, 1_000_000.0, 10_000.0)
             if st.button("Сбросить"):
                 broker.reset(new_cash)
                 st.rerun()
@@ -759,41 +762,29 @@ with tab_auto:
             "P&L %": st.column_config.NumberColumn(format="percent")})
     with st.expander("Журнал сделок"):
         st.dataframe(broker.orders(), hide_index=True, width="stretch")
-    st.caption("Автоматический режим без браузера: `python scripts/autotrader.py` обновляет данные из БКС "
+    st.caption("Автоматический режим без браузера: `python scripts/autotrader.py` обновляет открытые котировки "
                "и делает ребаланс paper-счёта по расписанию.")
 
 # ---------------------------------------------------------------- ДАННЫЕ
 with tab_data:
     if use_demo:
         st.info("Включён демо-режим: данные синтетические и в базу не пишутся. "
-                "Выключи его слева, чтобы работать с настоящими данными БКС.")
-    ru_source = st.radio("Источник свечей акций РФ", ru_data.SOURCES, horizontal=True,
-                         help="Авто: БКС, если задан токен, иначе MOEX ISS (бесплатно, без токена)")
-    c1, c2 = st.columns(2)
-    if c1.button("Проверить подключение к БКС"):
+                "Выключи его слева, чтобы работать с настоящими открытыми данными.")
+    mk_source = st.radio("Источник котировок", openmarket.SOURCES, horizontal=True,
+                         help="Авто: Yahoo Finance, при сбое Stooq (акции) или Binance (крипта). Ключи не нужны. "
+                              "Бумаги РФ: тикер с суффиксом .MOEX (SBER.MOEX), источник MOEX ISS.")
+    if st.button("Загрузить / обновить данные", type="primary", disabled=use_demo):
         try:
-            client = BcsClient()
-            client._access_token()
-            end = datetime.now(timezone.utc)
-            test = client.candles("SBER", end - timedelta(days=10), end)
-            st.success(f"Подключение работает, получено баров SBER: {len(test)}")
-        except BcsError as exc:
-            st.error(str(exc))
-        except Exception as exc:
-            st.error(f"Сеть или формат ответа: {exc!r}")
-    if c2.button("Загрузить / обновить данные", type="primary"):
-        try:
-            st.caption(f"Источник: {ru_data.resolve(ru_source)}")
             con = store.connect()
             progress = st.progress(0.0)
             failed = []
             for i, ticker in enumerate(tickers):
                 last = store.last_ts(con, ticker, tf)
-                start = last.to_pydatetime() if last is not None else ru_data.default_start(years)
+                start = last.to_pydatetime() if last is not None else openmarket.default_start(years)
                 try:
-                    df = ru_data.load(ticker, start, tf, ru_source)
+                    df, src = openmarket.load(ticker, start, tf, mk_source)
                     n = store.upsert(con, ticker, tf, df) if not df.empty else 0
-                    st.write(f"{ticker}: {n} баров")
+                    st.write(f"{ticker}: {n} баров ({src})")
                 except Exception as exc:
                     failed.append(f"{ticker}: {exc}")
                 progress.progress((i + 1) / len(tickers))

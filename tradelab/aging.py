@@ -200,3 +200,53 @@ def scenario_effect(w, effects, y0=2025, y1=2050, outcome="growth"):
     per_window = speed * 5.0                            # изменение за 5-летнее окно, как в регрессии
     return pd.DataFrame({"aging_per_year": speed, "effect": c * per_window,
                          "low": (c - 1.96 * se) * per_window, "high": (c + 1.96 * se) * per_window})
+
+
+# ---------------------------------------------------------------- устойчивость выводов
+def robustness(w, outcome="growth", driver=MEDIAN_AGE):
+    """Оценка эффекта старения при разных спецификациях: ширина окна, период, исключение групп стран, смена контрольных.
+    Возвращает DataFrame: спецификация, коэф., SE, t, наблюдений. Вывод устойчив, если знак и значимость не меняются."""
+    key, label, _ = OUTCOMES[outcome]
+    rich = w.get("gm:income_per_person_with_projections")
+    specs = []
+    for width, first, last in ((5, 1980, 2013), (5, 1990, 2013), (10, 1980, 2013), (3, 1980, 2013)):
+        specs.append((f"окно {width} лет, {first}–{last}", dict(first=first, last=last, width=width), None))
+    base = dict(first=1980, last=2013, width=5)
+    if rich is not None:
+        inc = rich.unstack("year").get(2000)
+        if inc is not None:
+            med = float(inc.median())
+            specs.append(("только богатые страны (доход 2000 выше медианы)", base, inc[inc > med].index))
+            specs.append(("только бедные страны (доход 2000 ниже медианы)", base, inc[inc <= med].index))
+    rows = []
+    for name, kw, keep in specs:
+        ww = w if keep is None else w[w.index.get_level_values("iso3").isin(keep)]
+        df = _windows(ww, key, driver, **kw)
+        if df.empty:
+            continue
+        for fe_name, fe in (("фикс. эффекты", True),):
+            try:
+                res, info = _fe_ols(df, "y", ["d_driver", "log_income0"], country_fe=fe)
+            except ValueError:
+                continue
+            r = res.loc["d_driver"]
+            rows.append({"Спецификация": name, "Коэф.": float(r["coef"]), "SE": float(r["se"]), "t": float(r["t"]),
+                         "Наблюдений": info["n"], "Стран": info["countries"]})
+    # исключение по одному «подозрительному» региону не делаем: слишком мало стран; вместо этого перестановочный тест
+    df = _windows(w, key, driver)
+    try:
+        res, _ = _fe_ols(df, "y", ["d_driver", "log_income0"])
+        real = float(res.loc["d_driver", "t"])
+        rng = np.random.default_rng(0)
+        null = []
+        for _ in range(40):
+            d2 = df.copy()
+            d2["d_driver"] = d2.groupby("period")["d_driver"].transform(lambda x: rng.permutation(x.values))
+            r2, _ = _fe_ols(d2, "y", ["d_driver", "log_income0"])
+            null.append(float(r2.loc["d_driver", "t"]))
+        p = float((np.abs(null) >= abs(real)).mean())
+        rows.append({"Спецификация": "перестановочный тест (драйвер перемешан внутри периода), p-значение",
+                     "Коэф.": np.nan, "SE": np.nan, "t": real, "Наблюдений": len(df), "Стран": df["iso3"].nunique(), "p": p})
+    except ValueError:
+        pass
+    return pd.DataFrame(rows)

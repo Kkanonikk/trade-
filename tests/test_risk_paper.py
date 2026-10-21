@@ -117,7 +117,7 @@ def test_drawdown_and_concentration():
 
 def test_what_if_and_sector():
     assert risk.what_if({"A": 0.5, "B": 0.5}, {"A": -0.1}) == pytest.approx(-0.05)
-    s = risk.sector_exposure({"SBER": 0.2, "VTBR": 0.2, "GAZP": 0.1}, config.sector)
+    s = risk.sector_exposure({"JPM": 0.2, "V": 0.2, "XOM": 0.1}, config.sector)
     assert s["Финансы"] == pytest.approx(0.4)
 
 

@@ -106,3 +106,27 @@ def last_actual_year(key):
 
 def source_line(keys):
     return registry.cite(keys)
+
+
+def from_user_csv(df, name):
+    """Пользовательский ряд из CSV: колонки country/iso3 (код или название), year, value. Возвращает (Series (iso3, year), число отброшенных строк)."""
+    cols = {c.lower().strip(): c for c in df.columns}
+    ckey = next((cols[c] for c in ("iso3", "country", "страна", "iso") if c in cols), None)
+    ykey = next((cols[c] for c in ("year", "год") if c in cols), None)
+    vkey = next((cols[c] for c in ("value", "значение") if c in cols), None)
+    if not (ckey and ykey and vkey):
+        raise ValueError("Нужны колонки: country (или iso3), year, value")
+    t = countries.table()
+    names = {}
+    for iso in t.index:
+        for n in (iso, countries.short_ru(iso), str(t.loc[iso, "name_en"])):
+            names[str(n).lower().strip()] = iso
+    iso = df[ckey].astype(str).str.lower().str.strip().map(names)
+    out = pd.DataFrame({"iso3": iso, "year": pd.to_numeric(df[ykey], errors="coerce"), "v": pd.to_numeric(df[vkey], errors="coerce")})
+    bad = int(out.isna().any(axis=1).sum())
+    out = out.dropna()
+    out["year"] = out["year"].astype(int)
+    if out.empty:
+        raise ValueError("Ни одна строка не распознана: проверь названия стран и числа")
+    ser = out.groupby(["iso3", "year"])["v"].mean().rename(name)
+    return ser, bad

@@ -130,3 +130,71 @@ def test_comparison_groups_are_valid_countries():
     known = set(countries.table().index)
     for name, isos in views_worldmode.GROUPS.items():
         assert len(isos) >= 5 and set(isos) <= known, name
+
+
+# ---------------------------------------------------------------- качество данных, досье, вопросы, устойчивость
+def test_quality_flags_detect_gap_jump_and_flat():
+    from tradelab import quality
+    vals = np.r_[np.linspace(10, 12, 10), [60.0], np.linspace(12, 13, 5), np.full(6, 13.0)]       # 22 значения
+    years = list(range(1980, 1990)) + [1990] + list(range(1996, 2001)) + list(range(2001, 2007))   # дыра 1991–1995
+    s = pd.Series(vals, index=years)
+    kinds = {f[0] for f in quality.series_flags(s)}
+    assert {"пропуск", "скачок", "залипание"} <= kinds
+    assert quality.series_flags(pd.Series(np.linspace(1, 2, 30), index=range(1990, 2020))) == []
+
+
+def test_quality_report_marks_stale_series(w):
+    from tradelab import quality
+    r = quality.report(w, ["gm:median_age_years", "gm:adults_with_hiv_percent_age_15_49"], current_year=2026)
+    st_ = r.set_index("key")["Статус"]
+    assert st_["gm:adults_with_hiv_percent_age_15_49"] == "устарел"
+
+
+def test_country_brief_has_sources_and_caveat(w):
+    from tradelab import brief
+    b = brief.build(w, "JPN", aging.population_path(w))
+    assert len(b["bullets"]) >= 5 and any("Медианный возраст" in t for t, _ in b["bullets"])
+    html = brief.to_html(b)
+    assert "Источники" in html and "лицензия" in html and "Trade Lab" in html and brief.CAVEAT[:30] in html
+
+
+def test_ask_routes_questions(w):
+    from tradelab import ask
+    a = gdata.available(w)
+    assert ask.interpret("риск голода в Нигерии", a)["page"] == "ГОЛОД"
+    assert ask.interpret("риск голода в Нигерии", a)["iso"] == "NGA"
+    assert ask.interpret("где больше всего стариков", a)["page"] == "ДЕМОГРАФИЯ"
+    assert ask.interpret("кризис в Турции", a)["iso"] == "TUR"
+    assert ask.interpret("абракадабра", a)["page"] is None
+
+
+def test_hunger_weight_robustness_and_what_if(w):
+    rob = hunger.weight_robustness(w, 2020, n=15)
+    assert rob.attrs["spearman_mean"] > 0.9 and (rob["p5"] <= rob["p95"]).all()
+    base, worse = hunger.what_if(w, 2020, "NGA", {"gm:gdppercapita_us_inflation_adjusted": 0.4, "gm:malnutrition_weight_for_age_percent_of_children_under_5": 2.0})
+    assert worse >= base
+    b2, same = hunger.what_if(w, 2020, "NGA", {})
+    assert abs(b2 - same) < 1e-6
+    comps = hunger.COMPONENTS
+    assert abs(sum(v[0] for v in comps.values()) - 1.0) < 1e-9          # веса восстановлены после проверки
+
+
+def test_country_backtest_ratio_on_trend():
+    s = pd.Series(10 + 0.5 * np.arange(40), index=range(1980, 2020))
+    d, ratio = forecast.country_backtest(s, "trend", 5)
+    assert len(d) > 10 and ratio < 0.05                    # линейный тренд почти идеален против наивного
+    assert forecast.country_backtest(s.head(10), "trend", 5)[0] is None
+
+
+def test_user_csv_mapping(w):
+    df = pd.DataFrame({"country": ["Россия", "Germany", "USA", "Nowhere"], "year": [2020, 2020, 2020, 2020], "value": [1, 2, 3, 4]})
+    ser, bad = gdata.from_user_csv(df, "user:x")
+    assert set(ser.index.get_level_values("iso3")) == {"RUS", "DEU", "USA"} and bad == 1
+    with pytest.raises(ValueError):
+        gdata.from_user_csv(pd.DataFrame({"a": [1]}), "user:y")
+
+
+def test_aging_robustness_returns_specs_and_permutation(w):
+    rb = aging.robustness(w, "growth")
+    assert len(rb) >= 5 and rb["p"].notna().sum() == 1
+    assert rb["SE"].dropna().gt(0).all()

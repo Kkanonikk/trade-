@@ -188,3 +188,24 @@ def skill_table(bt):
                     row[f"Навык {hz} г."] = float(1 - v[hz - 1] / base[hz - 1])
         rows.append(row)
     return pd.DataFrame(rows)
+
+
+def country_backtest(s, method, horizon, k=10, min_train=12):
+    """Прошлые прогнозы метода для ОДНОГО ряда (год -> значение): таблица origin, h, факт, прогноз, ошибка, и MASE страны против наивного."""
+    c = _clean(s)
+    if c is None or len(c) < min_train + horizon:
+        return None, float("nan")
+    y, yrs = c.to_numpy(), c.index.to_numpy()
+    rows, e_m, e_n = [], [], []
+    for end in range(min_train, len(y) - horizon + 1):
+        train = y[:end]
+        p = predict(train, horizon, method, k)
+        if p is None:
+            return None, float("nan")
+        n = predict(train, horizon, "naive", k)
+        rows.append({"origin": int(yrs[end - 1]), "target": int(yrs[end + horizon - 1]), "actual": float(y[end + horizon - 1]),
+                     "forecast": float(p[-1])})
+        e_m.append(abs(y[end + horizon - 1] - p[-1]))
+        e_n.append(abs(y[end + horizon - 1] - n[-1]))
+    ratio = float(np.mean(e_m) / max(np.mean(e_n), 1e-12))
+    return pd.DataFrame(rows), ratio

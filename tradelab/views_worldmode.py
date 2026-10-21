@@ -1,7 +1,7 @@
 """Глобальный режим: единая рабочая среда по странам мира на открытых данных (прошлое, прогнозы, источники).
 
 Страницы: ОБЗОР, ИССЛЕДОВАТЕЛЬ, СРАВНЕНИЕ, СТРАНА, ПУЗЫРЬКИ, ДЕМОГРАФИЯ, ГОЛОД, КЛИМАТ, КРИЗИСЫ, ТОРГОВЛЯ, МОРЕ, КОНФЛИКТЫ, ГОРИЗОНТ,
-ВАЛЮТЫ, ИСТОЧНИКИ. Под каждым графиком показан источник из реестра.
+ВАЛЮТЫ, МЕТОДЫ, ИСТОЧНИКИ. Под каждым графиком показан источник из реестра.
 """
 import io
 
@@ -10,7 +10,10 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
-from . import aging, catalog, countries, crisis, forecast, gdata, globe, hunger, panel as panel_mod, registry, store
+import json
+from pathlib import Path
+
+from . import aging, ask, brief, catalog, countries, crisis, forecast, gdata, globe, hunger, panel as panel_mod, quality, registry, store
 from . import views_global
 from .ui import C, PALETTE, pct, style
 
@@ -45,6 +48,8 @@ def src_box(keys, note=""):
     """Источник под графиком: названия, организации, ссылки и лицензии из реестра."""
     ids, lines = [], []
     meta = gdata.meta()
+    if any(str(k).startswith("user:") for k in keys):
+        note = (note + " · " if note else "") + "«Мои данные»: загружены пользователем, источник и качество на его ответственности"
     for k in keys:
         s = meta.get(k, {}).get("source")
         if s and s not in ids:
@@ -260,6 +265,16 @@ def page_country(version):
     st.markdown(f"### {countries.short_ru(iso)}")
     st.caption(f"{t.loc[iso, 'name_en']} · регион: {REGION_RU.get(region_of(iso), region_of(iso))} · валюта: {t.loc[iso, 'currency']}")
     meta = gdata.meta()
+    with st.expander("📄 Досье для печати / отправки (HTML, из браузера сохраняется в PDF)"):
+        if st.button("Подготовить досье", key=f"brief_btn_{iso}"):
+            with st.spinner("Собираю досье…"):
+                b = brief.build(w, iso, get_pop_path(version))
+            st.session_state["brief_html"] = (iso, brief.to_html(b), b["bullets"])
+        got = st.session_state.get("brief_html")
+        if got and got[0] == iso:
+            for t, _ in got[2]:
+                st.markdown(f"- {t}")
+            st.download_button("Скачать досье (HTML)", got[1].encode("utf-8"), f"dossier_{iso}.html", "text/html")
     cols = st.columns(4)
     shown = 0
     for k in KEY_PROFILE:
@@ -322,6 +337,16 @@ def page_country(version):
     c[3].metric("Покрытие интервала P10–P90 на поздних годах", pct(bt.coverage, 0) if np.isfinite(bt.coverage) else "н/д")
     if kskill < 0.05:
         st.warning("Метод почти не лучше наивного прогноза «останется как сейчас»: прогнозу этого показателя доверять осторожно.")
+    cb, ratio = forecast.country_backtest(s_act, best, hz)
+    if cb is not None:
+        verdict = "лучше" if ratio < 0.95 else "примерно так же" if ratio < 1.05 else "хуже"
+        st.caption(f"**Именно для этой страны** ({len(cb)} прошлых прогнозов на {hz} л.): метод ошибался в {ratio:.2f} раза от ошибки «останется как сейчас», "
+                   f"то есть {verdict}, чем наивный прогноз. Общий навык по всем странам выше может не соответствовать этой стране.")
+        with st.expander("Прошлые прогнозы для этой страны"):
+            fig2 = go.Figure()
+            fig2.add_scatter(x=cb["target"], y=cb["actual"], name="Факт", line=dict(color="#E8ECF1"))
+            fig2.add_scatter(x=cb["target"], y=cb["forecast"], name=f"Прогноз за {hz} л. до даты", line=dict(color=C["accent"], dash="dash"))
+            st.plotly_chart(style(fig2, 300), width="stretch")
     with st.expander("Все методы и их точность на истории"):
         st.dataframe(sk, hide_index=True, width="stretch")
         st.caption("MASE: средняя ошибка в единицах типичного годового изменения ряда страны; навык = 1 − MASE метода / MASE наивного. "
@@ -422,7 +447,22 @@ def page_compare(version):
     if len(sel) < 2:
         return st.info("Выбери минимум две страны.")
     defaults = [k for k in KEY_PROFILE if k in avail["key"].values][:8]
-    keys = st.multiselect("Показатели", avail["key"].tolist(), default=defaults, key="cmp_k",
+    up = st.file_uploader("Добавить свои данные (CSV: колонки country или iso3, year, value)", type="csv", key="cmp_up")
+    user_keys = []
+    if up is not None:
+        try:
+            ser, bad = gdata.from_user_csv(pd.read_csv(up), "user:" + Path(up.name).stem)
+            w = w.join(ser, how="outer")
+            meta = dict(meta)
+            meta[ser.name] = {"label": f"Мои данные: {Path(up.name).stem}", "unit": "", "group": "Мои данные", "better": "none", "source": None, "projection_from": None}
+            avail = pd.concat([avail, pd.DataFrame([{"key": ser.name, "label": meta[ser.name]["label"], "group": "Мои данные", "unit": "", "source": "user",
+                                                    "better": "none", "countries": ser.index.get_level_values("iso3").nunique(),
+                                                    "first": int(ser.index.get_level_values("year").min()), "last": int(ser.index.get_level_values("year").max())}])])
+            user_keys = [ser.name]
+            st.success(f"Загружено рядов по странам: {ser.index.get_level_values('iso3').nunique()}" + (f"; пропущено строк: {bad}" if bad else ""))
+        except Exception as exc:
+            st.error(f"Не удалось прочитать файл: {exc}")
+    keys = st.multiselect("Показатели", avail["key"].tolist(), default=defaults + user_keys, key="cmp_k" + ("_u" if user_keys else ""),
                           format_func=lambda k: f"{meta[k]['group']} · {meta[k]['label']}")
     if not keys:
         return st.info("Выбери хотя бы один показатель.")
@@ -689,7 +729,31 @@ def page_demography(version):
             views_global.world_map(colors, infos, f"СЦЕНАРИЙ: ЭФФЕКТ СТАРЕНИЯ 2025→2050 · {aging.OUTCOMES[outcome][1]}",
                                    [("хуже", "#FF4D4F"), ("лучше", "#26C281")], height=520)
             st.caption("Это не прогноз, а арифметика «коэффициент × скорость старения». Интервалы включают ноль, если связь не значима.")
+        with st.expander("Проверка устойчивости вывода (другие окна, богатые/бедные страны, перестановочный тест)"):
+            with st.spinner("Пересчитываю в разных спецификациях (около минуты при первом запуске)…"):
+                rb = robustness_cached(version, outcome)
+            if rb.empty:
+                st.info("Недостаточно данных.")
+            else:
+                st.dataframe(rb, hide_index=True, width="stretch", column_config={
+                    "Коэф.": st.column_config.NumberColumn(format="%.3f"), "SE": st.column_config.NumberColumn(format="%.3f"),
+                    "t": st.column_config.NumberColumn(format="%.2f"), "p": st.column_config.NumberColumn(format="%.2f")})
+                coefs = rb["Коэф."].dropna()
+                same = (np.sign(coefs) == np.sign(coefs.iloc[0])).all() if len(coefs) else False
+                nsig = int((rb["t"].abs() >= 2).sum())
+                st.caption(f"Значимых (|t| ≥ 2) спецификаций: {nsig} из {len(rb)}; знак коэффициента " + ("одинаков во всех." if same else "меняется между спецификациями.")
+                           + " Если значимых нет и знак меняется, вывод «эффект не выделяется» устойчив, а не артефакт одного выбора.")
         src_box([aging.MEDIAN_AGE, "wp:gdp_growth"], "регрессия рассчитана приложением")
+
+
+@st.cache_data(show_spinner=False)
+def robustness_cached(version, outcome):
+    return aging.robustness(get_wide(version), outcome)
+
+
+@st.cache_data(show_spinner=False)
+def hunger_robust_cached(version, year):
+    return hunger.weight_robustness(get_wide(version), year, n=60)
 
 
 # ================================================================ ГОЛОД
@@ -761,6 +825,26 @@ def page_hunger(version):
             st.caption(f"В среднем ρ индекса = {v['rho_index'].mean():.2f}, ρ инерции = {v['rho_persistence'].mean():.2f}. Индекс без самого "
                        "недоедания уступает прямой инерции, поэтому служит для сравнения уязвимости, а не замены наблюдаемых данных.")
         src_box([hunger.TARGET])
+    with st.expander("Устойчивость рейтинга к весам (60 случайных наборов весов ±50%)"):
+        with st.spinner("Считаю…"):
+            rob = hunger_robust_cached(version, y)
+        st.caption(f"Средний Спирмен между базовым и пересчитанными рейтингами: {rob.attrs['spearman_mean']:.3f} "
+                   "(1 = рейтинг не меняется). Если он близок к 1, выводы не зависят от экспертного выбора весов.")
+        top = rob.sort_values("base_rank").head(15)
+        st.dataframe(pd.DataFrame({"Страна": [countries.short_ru(i) for i in top.index], "Базовое место": top["base_rank"].values,
+                                   "Медианное место": top["median_rank"].values, "Диапазон P5–P95": [f"{a:.0f}–{b:.0f}" for a, b in zip(top["p5"], top["p95"])]}),
+                     hide_index=True)
+    with st.expander("Сценарий для страны: шок доходов, цен и безопасности"):
+        iso_s = st.selectbox("Страна", idx.index.tolist(), index=idx.index.tolist().index("NGA") if "NGA" in idx.index else 0,
+                             format_func=countries.short_ru, key="hg_sc_iso")
+        a1, a2, a3 = st.columns(3)
+        inc_m = a1.slider("Доход на душу, ×", 0.5, 1.5, 1.0, 0.05, key="hg_sc_inc")
+        inf_m = a2.slider("Инфляция, ×", 0.5, 3.0, 1.0, 0.1, key="hg_sc_inf")
+        war_m = a3.slider("Боевые потери, ×", 0.5, 5.0, 1.0, 0.1, key="hg_sc_war")
+        base_v, new_v = hunger.what_if(w, y, iso_s, {"gm:gdppercapita_us_inflation_adjusted": inc_m, "gm:inflation_annual_percent": inf_m,
+                                                    "gm:battle_deaths_per_100_000": war_m})
+        st.metric(f"Индекс уязвимости: {countries.short_ru(iso_s)}", f"{new_v:.1f}", f"{new_v - base_v:+.1f} к базе ({base_v:.1f})", delta_color="inverse")
+        st.caption("Пересчитываются процентильные ранги относительно остальных стран (остальные неизменны). Это арифметика индекса, а не прогноз последствий шока.")
     with st.expander("Что если: изменить веса факторов"):
         wts = {}
         cols = st.columns(2)
@@ -886,6 +970,25 @@ def page_climate(version):
 
 
 # ================================================================ ИСТОЧНИКИ
+@st.cache_data(show_spinner=False)
+def quality_cached(version):
+    return quality.report(get_wide(version))
+
+
+def provenance():
+    import hashlib
+    man = json.loads((panel_mod.SNAP / "manifest.json").read_text(encoding="utf-8")) if (panel_mod.SNAP / "manifest.json").exists() else {}
+    files = man.get("files", {})
+    rows = []
+    for f in sorted(panel_mod.SNAP.glob("*")):
+        if f.name == "manifest.json" or not f.is_file():
+            continue
+        info = files.get(f.name) or files.get(f.stem) or files.get(f.name.replace(".csv.gz", "")) or {}
+        rows.append({"Файл": f.name, "Размер, КБ": round(f.stat().st_size / 1024), "Строк": info.get("rows"),
+                     "Источник": info.get("source"), "SHA-256": hashlib.sha256(f.read_bytes()).hexdigest()[:16] + "…"})
+    return rows
+
+
 def page_sources(version):
     w, avail = get_wide(version), get_avail(version)
     st.markdown("### Источники данных и покрытие")
@@ -901,18 +1004,132 @@ def page_sources(version):
     st.dataframe(t, hide_index=True, width="stretch", height=420)
     st.caption("Правила честности: прогнозы ООН помечены как прогнозы; статистические прогнозы приложения сопровождаются проверкой на истории; "
                "модели, у которых навыка нет, показываются с этой пометкой. Карты с индексами (уязвимость, риск кризиса) рассчитаны приложением.")
+    st.markdown("### Свежесть и качество данных")
+    with st.spinner("Проверяю ряды на пропуски, скачки и возраст…"):
+        qrep = quality_cached(version)
+    c = st.columns(4)
+    c[0].metric("Показателей", len(qrep))
+    c[1].metric("Свежих (≤ 1 года)", int((qrep["Статус"] == "свежий").sum()))
+    c[2].metric("Устаревших (> 3 лет)", int((qrep["Статус"] == "устарел").sum()))
+    c[3].metric("Со скачками у >10% стран", int((qrep["Со скачками"] > 0.10).sum()))
+    st.dataframe(qrep.drop(columns=["key"]).sort_values("Возраст, лет", ascending=False), hide_index=True, width="stretch", height=380, column_config={
+        "С пропусками": st.column_config.NumberColumn(format="percent"), "Со скачками": st.column_config.NumberColumn(format="percent"),
+        "Залипание": st.column_config.NumberColumn(format="percent")})
+    st.caption("Скачки и «залипание» это подозрения: скачок может быть реальным событием (война, дефолт), а повторяющиеся значения признаком заполнения пропусков в источнике. "
+               "Строки с пометкой «устарел» нельзя использовать для суждений о сегодняшнем дне.")
+    with st.expander("Происхождение данных: файлы снимка и контрольные суммы"):
+        st.dataframe(pd.DataFrame(provenance()), hide_index=True, width="stretch")
+        st.caption("SHA-256 позволяет проверить, что файл не менялся; даты и строки берутся из manifest.json, который пишут скрипты обновления.")
+    with st.expander("Обновить из первоисточников (World Bank, IMF; нужен интернет)"):
+        st.caption("Загружает ~25 макропоказателей напрямую из API World Bank и IMF DataMapper и подмешивает к снимку. Если сеть закрыта, ошибки видны в отчёте.")
+        if st.button("Загрузить свежие данные", key="wm_refresh"):
+            bar = st.progress(0.0)
+            wide, report = panel_mod.refresh_live(lambda f, label: bar.progress(f, text=label))
+            if len(wide):
+                store.upsert_panel(store.connect_macro(), panel_mod.to_long(wide))
+            st.session_state["wm_refresh_report"] = pd.DataFrame(report, columns=["Что", "OK", "Сообщение"])
+            st.session_state["wm_bump"] = True
+        if "wm_refresh_report" in st.session_state:
+            rep = st.session_state["wm_refresh_report"]
+            st.write(f"Успешно {int(rep['OK'].sum())} из {len(rep)}")
+            st.dataframe(rep.sort_values("OK"), hide_index=True, height=220)
+            if st.session_state.pop("wm_bump", False):
+                st.session_state.version += 1
     st.divider()
     views_global.view_sources()
 
 
 # ================================================================ точка входа
+EVAL_PATH = Path(__file__).resolve().parent.parent / "assets" / "crisis_horizon_eval.json"
+
+
+def crisis_horizon_table():
+    """Измеренная точность моделей на горизонтах 1/3/5 лет (scripts/eval_crisis_horizons.py), если файл есть."""
+    if not EVAL_PATH.exists():
+        return
+    d = json.loads(EVAL_PATH.read_text(encoding="utf-8"))
+    with st.expander(f"Измеренная точность по горизонтам (walk-forward, проверено {d['measured']})"):
+        t = pd.DataFrame(d["rows"])
+        t = t.assign(Период=[f"{a}–{b}" for a, b in t["years"]])
+        t = t.rename(columns={"label": "Кризис", "horizon": "Горизонт, лет", "obs": "Наблюдений", "events": "Событий", "base_rate": "Базовая частота",
+                              "auc": "AUC модели", "auc_naive": "AUC наивного", "top_decile_capture": "Верхний дециль ловит"})
+        st.dataframe(t[["Кризис", "Горизонт, лет", "Период", "Наблюдений", "Событий", "Базовая частота", "AUC модели", "AUC наивного", "Верхний дециль ловит"]],
+                     hide_index=True, width="stretch", column_config={
+                         "Базовая частота": st.column_config.NumberColumn(format="percent"), "AUC модели": st.column_config.NumberColumn(format="%.3f"),
+                         "AUC наивного": st.column_config.NumberColumn(format="%.3f"), "Верхний дециль ловит": st.column_config.NumberColumn(format="percent")})
+        st.caption("AUC 0.5 = случайно, 1.0 = идеально. «Наивный» это один простой признак. Если AUC модели не выше наивного, модель ничего не добавляет.")
+
+
+METHODS_MD = """
+### Как устроены расчёты
+
+**Прогноз рядов по странам.** Методы: «останется как сейчас», линейный тренд (последние 10 лет), демпфированный тренд Хольта и версии в логарифмах.
+Каждый метод прогоняется на прошлых прогнозах всех стран (скользящие origin), ошибка измеряется в единицах типичного годового изменения ряда (MASE).
+Лучший метод выбирается по средней ошибке, интервал P10–P90 берётся из эмпирических квантилей ошибок на том же горизонте и проверяется на поздних годах
+(покрытие). Допущения: ряд продолжает вести себя как в прошлом; не учитываются политика, войны, технологии. Навык показан против наивного прогноза.
+
+**Кризисные модели (раннее предупреждение).** Метки: валютный (Frankel–Rose: ослабление ≥ 25% и ≥ 10 п.п. быстрее прошлого года), инфляционный (первый год ≥ 20%),
+рецессия (первый год отрицательного роста), конфликт (≥ 25 погибших, UCDP). Признаки известны на конец предыдущего года. Модель: ансамбль логистической
+регрессии и градиентного бустинга с поправкой на базовую частоту. Проверка: walk-forward (учится только на прошлом), AUC и доля событий в верхнем дециле риска.
+Горизонт 3 и 5 лет: метка «начнётся в течение h лет». Ограничение: банковские и долговые кризисы не прогнозируются (нет открытых меток).
+
+**Население и старение.** Население до 2013 года факт ООН; дальше годовая траектория из прироста ООН, откалиброванная к точкам 2050 и 2100 источника.
+Влияние старения на экономику: панель 5-летних окон 1980–2013, изменение медианного возраста за окно против среднего значения исхода, фиксированные эффекты
+страны и периода, стандартные ошибки кластеризованы по странам. Это статистическая связь, не причинность; устойчивость проверяется на других окнах, подвыборках и
+перестановочным тестом.
+
+**Индекс продовольственной уязвимости.** Взвешенная средняя процентильных рангов 10 компонентов (недоедание, калории, бедность, доход, сельское хозяйство, вода, засухи,
+боевые потери, инфляция, помощь). Веса экспертные; устойчивость к весам проверяется случайными наборами. Проверка на истории: индекс без компонента недоедания против недоедания
+через 5 лет. Это индекс сравнительной уязвимости, а не прогноз голода.
+
+**Долгосрочные оценки (ГОРИЗОНТ).** Доходность облигаций по стартовой ставке, акции по CAPE со сжатием к среднему, Монте-Карло портфеля, рост стран со сходимостью, динамика
+госдолга. Каждая оценка сопровождается проверкой вне выборки; у акций и роста на 10 лет навык слабый или отсутствует, и это указано.
+
+**Качество данных.** Для каждого ряда ищутся пропуски, скачки (робастный z по MAD) и «залипание»; для каждого показателя считается возраст последних данных.
+
+**Чего здесь нет.** Данных ниже уровня страны (регионы, города), причинных моделей с идентификацией, банковских и долговых кризисов, оценок голода по IPC/FEWS NET,
+автоматического обновления без запуска скриптов (для этого есть GitHub Actions, см. README).
+"""
+
+
+def page_methods(version):
+    st.markdown(METHODS_MD)
+    st.info("Каждая модель в приложении сопровождается проверкой на реальной истории прямо рядом с результатом. Если навыка нет, об этом написано.")
+
+
 PAGES = ["ОБЗОР", "ИССЛЕДОВАТЕЛЬ", "СРАВНЕНИЕ", "СТРАНА", "ПУЗЫРЬКИ", "ДЕМОГРАФИЯ", "ГОЛОД", "КЛИМАТ", "КРИЗИСЫ", "ТОРГОВЛЯ", "МОРЕ", "КОНФЛИКТЫ",
-         "ГОРИЗОНТ", "ВАЛЮТЫ", "ИСТОЧНИКИ"]
+         "ГОРИЗОНТ", "ВАЛЮТЫ", "МЕТОДЫ", "ИСТОЧНИКИ"]
+
+
+def _ask_cb(version):
+    q = st.session_state.get("wm_ask", "")
+    if not q.strip():
+        return
+    avail = get_avail(version)
+    r = ask.interpret(q, avail)
+    st.session_state["wm_ask_msg"] = r["explanation"]
+    if not r["page"]:
+        return
+    st.session_state["wm_page"] = r["page"]
+    w = get_wide(version)
+    opts = country_options(w)
+    if r["iso"] in opts:
+        st.session_state["cty_iso"] = r["iso"]
+        st.session_state["cl_iso"] = r["iso"]
+    keys = set(avail["key"])
+    if r["indicators"] and r["indicators"][0] in keys:
+        st.session_state["ex_k"] = r["indicators"][0]
+        if r["indicators"][0].startswith(("co2:", "en:")):
+            st.session_state["cl_k"] = r["indicators"][0]
 
 
 def render(version, bump, use_demo=False):
     st.markdown("<div class='title'>МИР · ГЛОБАЛЬНЫЙ РЕЖИМ</div>", unsafe_allow_html=True)
     st.caption("История и прогнозы по странам на открытых данных. Под каждой картой и графиком указан источник.")
+    st.text_input("Спросить: «где больше всего стариков», «риск голода в Нигерии», «кризис в Турции»", key="wm_ask", on_change=_ask_cb, args=(version,),
+                  placeholder="Введи вопрос и нажми Enter")
+    if st.session_state.get("wm_ask_msg"):
+        st.caption("➜ " + st.session_state["wm_ask_msg"])
     page = st.radio("Раздел", PAGES, horizontal=True, label_visibility="collapsed", key="wm_page")
     if page == "ОБЗОР":
         page_overview(version)
@@ -931,6 +1148,7 @@ def render(version, bump, use_demo=False):
     elif page == "КЛИМАТ":
         page_climate(version)
     elif page == "КРИЗИСЫ":
+        crisis_horizon_table()
         views_global.view_crises(version, bump, horizon_choice=True)
     elif page == "ТОРГОВЛЯ":
         views_global.view_trade(version, bump, use_demo)
@@ -942,5 +1160,7 @@ def render(version, bump, use_demo=False):
         views_global.view_horizon(version)
     elif page == "ВАЛЮТЫ":
         views_global.view_fx()
+    elif page == "МЕТОДЫ":
+        page_methods(version)
     else:
         page_sources(version)

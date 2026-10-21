@@ -88,3 +88,56 @@ def validate(w, origins=range(1995, 2016, 5), horizon=5):
         rows.append({"origin": t, "n": len(d), "rho_index": rho_idx, "rho_persistence": rho_past,
                      "top_quartile_precision": float((top & hi).sum() / max(top.sum(), 1))})
     return pd.DataFrame(rows)
+
+
+# ---------------------------------------------------------------- устойчивость к весам и сценарии
+def weight_robustness(w, year, n=200, seed=0, spread=0.5):
+    """Насколько рейтинг зависит от выбранных весов: n случайных наборов весов (базовые × множитель из [1-spread, 1+spread]).
+    Возвращает DataFrame по странам: базовый ранг, медианный ранг, диапазон P5–P95, и общий Спирмен с базовым рейтингом."""
+    rng = np.random.default_rng(seed)
+    base, _ = index(w, year)
+    orig = dict(COMPONENTS)
+    ranks = []
+    try:
+        for _ in range(n):
+            for k, (wt, sign, lab) in orig.items():
+                COMPONENTS[k] = (wt * rng.uniform(1 - spread, 1 + spread), sign, lab)
+            alt, _ = index(w, year)
+            ranks.append(alt.rank(ascending=False))
+    finally:
+        COMPONENTS.clear()
+        COMPONENTS.update(orig)
+    R = pd.concat(ranks, axis=1)
+    b = base.rank(ascending=False)
+    out = pd.DataFrame({"base_rank": b, "median_rank": R.median(axis=1), "p5": R.quantile(0.05, axis=1), "p95": R.quantile(0.95, axis=1)}).dropna()
+    out.attrs["spearman_mean"] = float(np.mean([b.corr(r, method="spearman") for r in ranks]))
+    return out
+
+
+def what_if(w, year, iso, shocks):
+    """Сценарий для страны: shocks = {ключ компонента: множитель}. Индекс считается заново, значения страны меняются, остальные
+    страны остаются как есть (процентильные ранги пересчитываются). Возвращает (базовый индекс, индекс в сценарии)."""
+    F = features(w, year)
+    base, _ = index(w, year)
+    if iso not in F.index:
+        raise ValueError("Нет данных по стране")
+    G = F.copy()
+    for k, mult in shocks.items():
+        if k not in G.columns or pd.isna(G.loc[iso, k]):
+            continue
+        v = G.loc[iso, k]
+        # компоненты в логарифмах (доход, вода, засухи): множитель к исходной величине = сдвиг на ln(mult)
+        G.loc[iso, k] = v + np.log(mult) if k in LOG_COMPONENTS else v * mult
+    ranks, weights = pd.DataFrame(index=G.index), {}
+    for k, (wt, sign, _) in COMPONENTS.items():
+        r = G[k].rank(pct=True)
+        ranks[k] = r if sign > 0 else 1 - r
+        weights[k] = wt
+    W = pd.Series(weights)
+    have = ranks.notna()
+    score = (ranks.fillna(0) * W).sum(axis=1) / (have * W).sum(axis=1) * 100
+    return float(base.get(iso, np.nan)), float(score[iso])
+
+
+LOG_COMPONENTS = {"gm:gdppercapita_us_inflation_adjusted", "gm:internal_renewable_water_cu_meters_per_person",
+                  "gm:drought_affected_annual_number"}

@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from tradelab import globe, markets, ru_data, sources, structure, worlddata
+from tradelab import globe, markets, openmarket, sources, structure, worlddata
 
 
 @pytest.fixture(scope="module")
@@ -76,14 +76,28 @@ def test_color_scales():
     assert globe.sequential(5, 0, 10) == globe.lerp_color((30, 38, 52), (255, 159, 26), 0.5)
 
 
-def test_ru_source_resolution_and_moex_timeframes(monkeypatch):
-    monkeypatch.setenv("BCS_REFRESH_TOKEN", "")
-    assert ru_data.resolve("Авто") == "MOEX ISS"
-    monkeypatch.setenv("BCS_REFRESH_TOKEN", "x")
-    assert ru_data.resolve("Авто") == "БКС"
+def test_open_market_source_chains():
+    names = lambda t, tf="D": [n for n, _ in openmarket.attempts(t, tf, 2)]
+    assert names("AAPL") == ["Yahoo Finance", "Stooq"]
+    assert names("BTC-USD") == ["Yahoo Finance", "Binance"]
+    assert names("SBER.MOEX") == ["MOEX ISS"]
+    assert names("AAPL", "W") == ["Yahoo Finance"]
+    assert openmarket._binance_symbol("ETH-USD") == "ETHUSDT" and openmarket._stooq_symbol("AAPL") == "aapl.us"
     from datetime import datetime, timezone
     with pytest.raises(ValueError):
-        ru_data.load("SBER", datetime.now(timezone.utc), "M15", "MOEX ISS")
+        openmarket.load("AAPL", datetime.now(timezone.utc), "M15")
+
+
+def test_open_market_falls_back_when_first_source_fails(monkeypatch):
+    from datetime import datetime, timedelta, timezone
+    from tradelab.net import SourceError
+    good = pd.DataFrame({"ts": pd.to_datetime(["2030-01-02"], utc=True), "open": [1.0], "high": [2.0], "low": [0.5], "close": [1.5], "volume": [1.0]})
+    monkeypatch.setattr(sources, "fetch_yahoo", lambda *a, **k: (_ for _ in ()).throw(SourceError("429")))
+    monkeypatch.setattr(sources, "fetch_stooq", lambda *a, **k: good)
+    df, src = openmarket.load("AAPL", datetime.now(timezone.utc) - timedelta(days=3000), "D")
+    assert src == "Stooq" and len(df) == 1
+    with pytest.raises(ValueError):
+        openmarket.load("AAPL", datetime.now(timezone.utc) - timedelta(days=30), "D", "Binance")
 
 
 def test_moex_pagination_stops_on_short_page(monkeypatch):
