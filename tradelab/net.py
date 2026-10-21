@@ -11,18 +11,40 @@ class SourceError(RuntimeError):
 
 
 _session = requests.Session()
+# Быстрый режим для массовой загрузки: меньше повторов и «автомат» на хосте, который не отвечает (иначе при закрытой сети ожидание идёт минутами)
+FAST = {"on": False, "dead": {}}
+DEAD_AFTER = 2
+
+
+def fast_mode(on=True):
+    FAST["on"] = on
+    FAST["dead"] = {}
+
+
+def _host(url):
+    from urllib.parse import urlparse
+    return urlparse(url).netloc
 
 
 def get(url, params=None, headers=None, timeout=30, retries=3, as_json=False):
     head = {"User-Agent": UA, "Accept": "*/*"}
     head.update(headers or {})
     last = None
+    host = _host(url)
+    if FAST["on"]:
+        retries, timeout = min(retries, 2), min(timeout, 15)
+        if FAST["dead"].get(host, 0) >= DEAD_AFTER:
+            raise SourceError(f"{host}: источник не отвечает (пропущен в этой загрузке)")
     for attempt in range(retries):
         try:
             resp = _session.get(url, params=params, headers=head, timeout=timeout)
         except requests.RequestException as exc:  # сеть, прокси, DNS
             last = f"{type(exc).__name__}: {exc}"
-            time.sleep(1.5 * (attempt + 1))
+            if FAST["on"]:
+                FAST["dead"][host] = FAST["dead"].get(host, 0) + 1
+                if FAST["dead"][host] >= DEAD_AFTER:
+                    break
+            time.sleep(0.4 if FAST["on"] else 1.5 * (attempt + 1))
             continue
         if resp.status_code == 200:
             try:

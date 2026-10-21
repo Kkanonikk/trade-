@@ -126,12 +126,16 @@ def value_map(values, k, year, title_extra="", height=600, key_suffix=""):
         tag = "<br><span style='color:#B38CFF'>прогноз ООН, не факт</span>" if proj and year >= proj else ""
         infos[iso] = (f"<b style='color:#FF9F1A'>{countries.short_ru(iso)}</b><br>{m['label']} ({year}): <b>{fmt_val(float(v), m['unit'])}</b>"
                       f"<br>место {int(rank[iso])} из {len(values)}{tag}")
-    leg = {"down": [("ниже (лучше)", "#1e2634"), ("выше (хуже)", "#FF3C3C")], "up": [("ниже (хуже)", "#FF4D4F"), ("выше (лучше)", "#26C281")],
-           "none": [("ниже", "#1e2634"), ("выше", "#FF9F1A")]}[m["better"]]
-    leg = [(f"{leg[0][0]} · {fmt_val(lo)}", leg[0][1]), (f"{leg[1][0]} · {fmt_val(hi)}", leg[1][1])]
-    mode = st.radio("Вид карты", ["Карта", "Глобус"], horizontal=True, key=f"vm_mode_{k}_{key_suffix}")
-    views_global.world_map(colors, infos, f"{m['label'].upper()} · {year}{title_extra}", leg, mode="flat" if mode == "Карта" else "globe",
-                           height=height)
+    mode = st.radio("Вид карты", ["Карта", "Глобус"], horizontal=True, key=f"vm_mode_{k}_{key_suffix}", label_visibility="collapsed")
+    lab = m["better"]
+    hi_txt = {"down": "выше = хуже", "up": "выше = лучше", "none": "выше"}[lab]
+    lo_txt = {"down": "ниже = лучше", "up": "ниже = хуже", "none": "ниже"}[lab]
+    grad = views_global.gradient_legend(lambda x: globe.scale_color(x, lo, hi, m["better"]), lo, hi, f"{lo_txt} · {fmt_val(lo)}", f"{hi_txt} · {fmt_val(hi)}")
+    names = lambda i: countries.short_ru(i)
+    rk = views_global.ranking_panel(values, lambda i: colors.get(i), names, lambda x: fmt_val(x, m["unit"]),
+                                    "Максимум" if lab != "up" else "Лучшие", "Минимум" if lab != "up" else "Худшие")
+    views_global.world_map(colors, infos, f"{m['label']} · {year}{title_extra}", [], mode="flat" if mode == "Карта" else "globe", height=height,
+                           grad=grad, ranking=rk, subtitle=f"{len(values)} стран" + (" · прогноз ООН" if proj and year >= proj else ""))
 
 
 def series_chart(w, k, isos, y0=None, height=380):
@@ -190,7 +194,11 @@ def page_overview(version):
         idx, _ = hunger.index(w, yr)
         colors = {i: globe.scale_color(float(v), float(idx.quantile(.03)), float(idx.quantile(.97)), "down") for i, v in idx.items()}
         infos = {i: f"<b style='color:#FF9F1A'>{countries.short_ru(i)}</b><br>индекс уязвимости {yr}: <b>{v:.0f}</b> из 100" for i, v in idx.items()}
-        views_global.world_map(colors, infos, f"ПРОДОВОЛЬСТВЕННАЯ УЯЗВИМОСТЬ · {yr}", [("ниже", "#1e2634"), ("выше", "#FF3C3C")], height=560)
+        lo_, hi_ = float(idx.quantile(.03)), float(idx.quantile(.97))
+        views_global.world_map(colors, infos, f"ПРОДОВОЛЬСТВЕННАЯ УЯЗВИМОСТЬ · {yr}", [], height=580,
+                               grad=views_global.gradient_legend(lambda x: globe.scale_color(x, lo_, hi_, "down"), lo_, hi_, f"ниже · {lo_:.0f}", f"выше · {hi_:.0f}"),
+                               ranking=views_global.ranking_panel(idx, lambda i: colors.get(i), countries.short_ru, lambda x: f"{x:.0f}", "Самые уязвимые", "Наименее уязвимые"),
+                               subtitle=f"{len(idx)} стран")
         src_box(list(hunger.COMPONENTS), "индекс 0–100 рассчитан приложением, см. страницу ГОЛОД")
     else:
         k, y = ykey[layer]
@@ -266,13 +274,15 @@ def run_backtest_cached(version, k, horizon):
     return forecast.run_backtest(ser, horizon=horizon, last_year_cap=cap)
 
 
-def page_country(version):
+def page_country(version, iso=None, show_header=True):
     w, avail = get_wide(version), get_avail(version)
-    iso = st.selectbox("Страна", country_options(w), index=country_options(w).index("RUS") if "RUS" in country_options(w) else 0,
-                       format_func=countries.short_ru, key="cty_iso")
+    if iso is None:
+        iso = st.selectbox("Страна", country_options(w), index=country_options(w).index("RUS") if "RUS" in country_options(w) else 0,
+                           format_func=countries.short_ru, key="cty_iso")
     t = countries.table()
-    st.markdown(f"### {countries.short_ru(iso)}")
-    st.caption(f"{t.loc[iso, 'name_en']} · регион: {REGION_RU.get(region_of(iso), region_of(iso))} · валюта: {t.loc[iso, 'currency']}")
+    if show_header:
+        st.markdown(f"### {countries.short_ru(iso)}")
+        st.caption(f"{t.loc[iso, 'name_en']} · регион: {REGION_RU.get(region_of(iso), region_of(iso))} · валюта: {t.loc[iso, 'currency']}")
     meta = gdata.meta()
     with st.expander("📄 Досье для печати / отправки (HTML, из браузера сохраняется в PDF)"):
         if st.button("Подготовить досье", key=f"brief_btn_{iso}"):
@@ -736,7 +746,7 @@ def page_demography(version):
             infos = {i: f"<b style='color:#FF9F1A'>{countries.short_ru(i)}</b><br>старение: +{r.aging_per_year * 25:.1f} лет медианного возраста за 25 лет"
                         f"<br>подразумеваемый эффект: <b>{r.effect:+.2f}</b> (от {r.low:+.2f} до {r.high:+.2f}) в год" for i, r in sc.iterrows()}
             views_global.world_map(colors, infos, f"СЦЕНАРИЙ: ЭФФЕКТ СТАРЕНИЯ 2025→2050 · {aging.OUTCOMES[outcome][1]}",
-                                   [("хуже", "#FF4D4F"), ("лучше", "#26C281")], height=520)
+                                   [("хуже", "#FF4D4F"), ("лучше", "#26C281")], height=560)
             st.caption("Это не прогноз, а арифметика «коэффициент × скорость старения». Интервалы включают ноль, если связь не значима.")
         with st.expander("Проверка устойчивости вывода (другие окна, богатые/бедные страны, перестановочный тест)"):
             with st.spinner("Пересчитываю в разных спецификациях (около минуты при первом запуске)…"):
@@ -796,7 +806,10 @@ def page_hunger(version):
         why = ", ".join(hunger.COMPONENTS[k][2] for k in top.index)
         infos[i] = (f"<b style='color:#FF9F1A'>{countries.short_ru(i)}</b><br>уязвимость {y}: <b>{v:.0f}</b> из 100"
                     f"<br><span style='color:#8B96A5'>главные факторы: {why}</span>")
-    views_global.world_map(colors, infos, f"ПРОДОВОЛЬСТВЕННАЯ УЯЗВИМОСТЬ · {y}", [("ниже", "#1e2634"), ("выше", "#FF3C3C")], height=560)
+    views_global.world_map(colors, infos, f"ПРОДОВОЛЬСТВЕННАЯ УЯЗВИМОСТЬ · {y}", [], height=600,
+                           grad=views_global.gradient_legend(lambda x: globe.scale_color(x, lo, hi_q, "down"), lo, hi_q, f"ниже · {lo:.0f}", f"выше · {hi_q:.0f}"),
+                           ranking=views_global.ranking_panel(idx, lambda i: colors.get(i), countries.short_ru, lambda x: f"{x:.0f}", "Самые уязвимые", "Наименее уязвимые"),
+                           subtitle=f"{len(idx)} стран")
     src_box(list(hunger.COMPONENTS), "индекс рассчитан приложением")
     a, b = st.columns([2, 3])
     with a:
@@ -1113,8 +1126,8 @@ def page_methods(version):
     st.info("Каждая модель в приложении сопровождается проверкой на реальной истории прямо рядом с результатом. Если навыка нет, об этом написано.")
 
 
-PAGES = ["ОБЗОР", "ИССЛЕДОВАТЕЛЬ", "СРАВНЕНИЕ", "СТРАНА", "ПУЗЫРЬКИ", "ДЕМОГРАФИЯ", "ГОЛОД", "КЛИМАТ", "КРИЗИСЫ", "ТОРГОВЛЯ", "МОРЕ", "КОНФЛИКТЫ",
-         "ГОРИЗОНТ", "ВАЛЮТЫ", "МЕТОДЫ", "ИСТОЧНИКИ"]
+PAGES = ["ОБЗОР", "ПРОБЛЕМЫ", "ПАСПОРТ", "ИССЛЕДОВАТЕЛЬ", "СРАВНЕНИЕ", "ПУЗЫРЬКИ", "ДЕМОГРАФИЯ", "ГОЛОД", "КЛИМАТ", "КРИЗИСЫ", "ТОРГОВЛЯ", "МОРЕ",
+         "КОНФЛИКТЫ", "ГОРИЗОНТ", "ВАЛЮТЫ", "МЕТОДЫ", "ИСТОЧНИКИ", "НАСТРОЙКИ"]
 
 
 def _ask_cb(version):
@@ -1140,8 +1153,13 @@ def _ask_cb(version):
 
 
 def render(version, bump, use_demo=False):
+    from . import views_problems, views_settings
+    views_settings.init_state()
     bar = st.empty()
-    st.markdown(theme.tape_snapshot(), unsafe_allow_html=True)
+    if st.session_state.get("set_tape", True):
+        st.markdown(theme.tape_snapshot(), unsafe_allow_html=True)
+    if "wm_page" not in st.session_state:
+        st.session_state["wm_page"] = st.session_state.get("set_page", "ОБЗОР")
     st.text_input("Спросить: «где больше всего стариков», «риск голода в Нигерии», «кризис в Турции»", key="wm_ask", on_change=_ask_cb, args=(version,),
                   placeholder="Введи вопрос и нажми Enter")
     if st.session_state.get("wm_ask_msg"):
@@ -1159,8 +1177,12 @@ def render(version, bump, use_demo=False):
         page_explorer(version)
     elif page == "СРАВНЕНИЕ":
         page_compare(version)
-    elif page == "СТРАНА":
-        page_country(version)
+    elif page == "ПРОБЛЕМЫ":
+        views_problems.page_problems(version)
+    elif page == "ПАСПОРТ":
+        views_problems.page_passport(version)
+    elif page == "НАСТРОЙКИ":
+        views_settings.page_settings(version, bump)
     elif page == "ПУЗЫРЬКИ":
         page_bubbles(version)
     elif page == "ДЕМОГРАФИЯ":

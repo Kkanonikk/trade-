@@ -291,3 +291,93 @@ def test_theme_top_bar_and_tape_have_no_broker_mentions():
     tape = theme.tape_snapshot()
     assert "BRENT" in tape and "VIX" in tape and "S&amp;P" not in tape.replace("S&P", "")
     assert "БКС" not in theme.CSS
+
+
+# ---------------------------------------------------------------- проблемы, паспорта, подключения, настройки
+def test_problem_index_ranks_and_dimensions(w):
+    from tradelab import problems
+    refs = problems.resolve(w)
+    assert all(v is not None for v in refs.values()), [k for k, v in refs.items() if v is None]
+    r = problems.score(w, 2021)
+    comp = r["composite"]
+    assert comp.between(0, 100).all() and len(comp) > 150
+    assert comp["SSD"] > comp["USA"] + 40 and comp["CHE"] < 30 and comp["NGA"] > comp["DEU"]
+    assert set(r["dims"].columns) == set(problems.DIMENSIONS)
+    assert r["dims"].loc["NGA", "hunger"] > r["dims"].loc["NOR", "hunger"]
+
+
+def test_problem_index_weights_and_stability(w):
+    from tradelab import problems
+    base = problems.score(w, 2021)["composite"]
+    only_econ = problems.score(w, 2021, {k: (1.0 if k == "economy" else 0.0) for k in problems.DIMENSIONS})
+    assert only_econ["composite"].corr(only_econ["dims"]["economy"].reindex(only_econ["composite"].index)) > 0.99
+    assert base.corr(only_econ["composite"], method="spearman") < 0.99
+    past = problems.score(w, 2015)["composite"]                    # без заглядывания в будущее: другой год даёт другие значения
+    assert not np.allclose(past.reindex(base.index).dropna().values[:20], base.reindex(past.index).dropna().values[:20])
+
+
+def test_country_diagnosis_and_peers(w):
+    from tradelab import problems
+    r = problems.score(w, 2021)
+    worst, best = problems.diagnosis(r, "NGA")
+    assert worst and all(p >= 60 for _, p in worst) and all(p <= 40 for _, p in best)
+    peers = problems.peers(r, "RUS", 6)
+    assert len(peers) == 6 and "RUS" not in peers.index and peers["distance"].is_monotonic_increasing
+
+
+def test_connections_probe_statuses(monkeypatch):
+    from tradelab import connections
+
+    class Resp:
+        def __init__(self, code, body):
+            self.status_code, self.body = code, body
+            self.raw = type("R", (), {"read": lambda s, n, decode_content=True: body.encode()})()
+
+    def fake_get(url, params=None, headers=None, timeout=None, stream=None):
+        if "yahoo" in url:
+            return Resp(200, '{"chart": {"result": []}}')
+        if "binance" in url:
+            return Resp(200, "{}")
+        if "stooq" in url:
+            return Resp(200, "<html>captcha</html>")                # формат изменился
+        if "frankfurter" in url:
+            raise ConnectionError("нет сети")
+        return Resp(404, "")
+    monkeypatch.setattr(connections.requests, "get", fake_get)
+    df = connections.probe_all()
+    st_ = df.set_index("id")["Статус"]
+    assert st_["yahoo"] == "онлайн" and st_["binance"] == "онлайн" and st_["stooq"] == "формат?" and st_["ecb"] == "ошибка" and st_["moex"] == "ошибка"
+    assert len(df) == len(connections.PROBES) and (df["мс"] >= 0).all()
+
+
+def test_settings_roundtrip_and_env_keys(monkeypatch, tmp_path):
+    from tradelab import config, settings
+    monkeypatch.setattr(settings, "PATH", tmp_path / "s.json")
+    monkeypatch.setattr(config, "ROOT", tmp_path)
+    cur = settings.load()
+    assert cur["as_of_year"] == settings.DEFAULTS["as_of_year"]
+    cur["as_of_year"] = 2018
+    cur["dim_weights"] = {"hunger": 2.0}
+    settings.save(cur)
+    assert settings.load()["as_of_year"] == 2018 and settings.load()["dim_weights"] == {"hunger": 2.0}
+    settings.save_env("FRED_API_KEY", "abcd1234")
+    assert (tmp_path / ".env").read_text().strip() == "FRED_API_KEY=abcd1234" and config.get("FRED_API_KEY") == "abcd1234"
+    settings.save_env("FRED_API_KEY", "")
+    assert "FRED_API_KEY" not in (tmp_path / ".env").read_text() and settings.mask("abcdefgh") == "••••efgh"
+
+
+def test_ask_routes_new_pages(w):
+    from tradelab import ask
+    a = gdata.available(w)
+    assert ask.interpret("паспорт Нигерии", a)["page"] == "ПАСПОРТ"
+    assert ask.interpret("где больше всего проблем", a)["page"] == "ПРОБЛЕМЫ"
+    assert ask.interpret("порт Роттердам", a)["page"] == "МОРЕ"          # «порт» внутри слова «паспорт» больше не срабатывает
+
+
+def test_map_component_has_ranking_gradient_and_flat_default():
+    from tradelab import globe
+    html = globe.build([], [], {"RUS": "#ff0000"}, title="T", info={"RUS": "x"},
+                       grad={"colors": ["#000", "#fff"], "lo": "min", "hi": "max"},
+                       ranking={"top_title": "Top", "bottom_title": "Bottom", "top": [["RUS", "Россия", "1", "#f00"]], "bottom": []})
+    assert "gradbar" in html and 'id="rank"' in html and '"mode":"flat"' in html and "Россия" in html
+    assert "БКС" not in html

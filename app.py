@@ -8,7 +8,7 @@ import streamlit as st
 from plotly.subplots import make_subplots
 
 from tradelab import (autotrade, backtest, compliance, config, demo, indicators, loadall, models, openmarket, optimize,
-                      paper, risk, sources, store, strategies, theme, views, views_cockpit, views_global, views_worldmode, worlddata)
+                      paper, risk, sources, store, strategies, theme, views, views_cockpit, views_global, views_settings, views_worldmode, worlddata)
 from tradelab.openmarket import TIMEFRAMES
 from tradelab.ui import C, pct, style
 
@@ -17,6 +17,7 @@ theme.inject(st)
 
 
 # ---------------------------------------------------------------- боковая панель
+views_settings.init_state()
 with st.sidebar:
     st.markdown("<div class='side-title'>TRADE LAB</div><div class='side-sub'>открытые данные · аналитика · риск</div>", unsafe_allow_html=True)
     app_mode = st.radio("Режим", ["🌍 Глобальный мир", "📈 Портфель и рынки"], key="app_mode",
@@ -29,6 +30,12 @@ with st.sidebar:
     if st.session_state.get("load_all_report") is not None:
         rep = st.session_state["load_all_report"]
         st.caption(f"Последняя загрузка: {st.session_state.get('load_all_time', '')} · успешно {int(rep['ОК'].sum())} из {len(rep)}")
+    probe = st.session_state.get("probe_df")
+    if probe is not None:
+        ok = int((probe["Статус"] == "онлайн").sum())
+        col = "#26C281" if ok == len(probe) else "#FF9F1A" if ok else "#FF4D4F"
+        st.markdown(f"<div style='font-size:.7rem;letter-spacing:.06em;color:{col}'>● ИСТОЧНИКОВ ОНЛАЙН: {ok} из {len(probe)} · {st.session_state.get('probe_time', '')}</div>",
+                    unsafe_allow_html=True)
     st.markdown("<div class='side-sec'>параметры</div>", unsafe_allow_html=True)
     try:
         has_data = bool(store.summary(store.connect()).shape[0])
@@ -94,6 +101,9 @@ def bump():
     st.rerun()
 
 
+if st.session_state.get("set_autorefresh") and not st.session_state.get("_autoloaded"):
+    st.session_state["_autoloaded"] = True
+    load_all_clicked = True
 if load_all_clicked:
     steps = loadall.build_steps(tuple(tickers), tf, years, include_quotes=True)
     box = st.container()
@@ -180,9 +190,9 @@ weights, weights_fallback = (pick_weights(list(R_all.columns)) if R_all is not N
 
 tabs = st.tabs(["КОКПИТ", "ОБЗОР", "МИР", "МОРЕ", "КОНФЛИКТЫ", "ГОРИЗОНТ", "КРИЗИСЫ", "ВАЛЮТЫ", "ТОРГОВЛЯ", "СТРУКТУРА", "МАКРО",
                 "ОТЧЁТНОСТЬ", "ГРАФИК", "РИСК", "ФАКТОРЫ", "ОПТИМИЗАТОР", "СТРАТЕГИИ", "МОДЕЛИ", "СКАНЕР", "АВТОТОРГОВЛЯ",
-                "ДАННЫЕ", "ИСТОЧНИКИ"])
+                "ДАННЫЕ", "ИСТОЧНИКИ", "НАСТРОЙКИ"])
 (tab_cockpit, tab_ov, tab_world, tab_sea, tab_conf, tab_horizon, tab_crisis, tab_fx, tab_trade, tab_struct, tab_macro, tab_fund,
- tab_chart, tab_risk, tab_factors, tab_opt, tab_strat, tab_models, tab_scan, tab_auto, tab_data, tab_sources) = tabs
+ tab_chart, tab_risk, tab_factors, tab_opt, tab_strat, tab_models, tab_scan, tab_auto, tab_data, tab_sources, tab_settings) = tabs
 limits_ss = st.session_state.setdefault("limits", compliance.Limits())
 
 # ---------------------------------------------------------------- ОБЗОР
@@ -250,6 +260,9 @@ with tab_trade:
 
 with tab_sources:
     views_global.view_sources()
+
+with tab_settings:
+    views_settings.page_settings(VERSION, bump)
 
 with tab_struct:
     universe = st.radio("Универсум", ["Мировые индексы", "Бумаги из портфеля"], horizontal=True)

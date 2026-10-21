@@ -51,7 +51,7 @@ p, li, label, span, div {{font-variant-numeric: tabular-nums;}}
 /* карточки показателей */
 [data-testid="stMetric"] {{background: var(--panel); border:1px solid var(--line); border-top:2px solid var(--amber); border-radius:0; padding:10px 14px 9px;}}
 [data-testid="stMetricLabel"] p {{color:var(--muted); font-size:.68rem; text-transform:uppercase; letter-spacing:.1em; font-weight:500;}}
-[data-testid="stMetricValue"] {{font-size:1.5rem; font-weight:600; color:var(--text); letter-spacing:-.01em;}}
+[data-testid="stMetricValue"] {{font-size:1.32rem; font-weight:600; color:var(--text); letter-spacing:-.01em;}}
 [data-testid="stMetricDelta"] {{font-size:.74rem;}}
 
 /* функциональные клавиши: вкладки и горизонтальные переключатели */
@@ -100,6 +100,20 @@ hr {{border-color: var(--line);}}
 .side-sec {{color:var(--muted); font-size:.64rem; letter-spacing:.16em; text-transform:uppercase; border-bottom:1px solid var(--line); margin:14px 0 6px; padding-bottom:3px;}}
 .badge {{display:inline-block; padding:2px 10px; font-size:.68rem; font-weight:700; letter-spacing:.08em;}}
 .title {{font-size:1.3rem; font-weight:800; letter-spacing:.14em; color:var(--amber);}}
+
+/* паспорт страны и шкалы */
+.passport{{display:flex;align-items:center;gap:18px;background:linear-gradient(90deg,#161d29,#10151D);border:1px solid var(--line);border-left:4px solid var(--amber);padding:16px 20px;margin:6px 0 12px;}}
+.pp-flag{{background:var(--amber);color:#0A0D12;font-weight:800;font-size:1.5rem;letter-spacing:.06em;padding:10px 14px;min-width:46px;text-align:center;}}
+.pp-main{{flex:1}}.pp-name{{font-size:1.7rem;font-weight:700;letter-spacing:.02em;color:var(--text)}}
+.pp-sub{{color:var(--muted);font-size:.78rem;letter-spacing:.04em;margin-top:2px}}
+.pp-score{{text-align:right;border-left:1px solid var(--line);padding-left:20px}}.pp-big{{font-size:2.6rem;font-weight:800;color:var(--amber);line-height:1}}
+.pp-cap{{color:var(--muted);font-size:.68rem;letter-spacing:.08em;text-transform:uppercase;margin-top:4px}}
+.gline{{display:flex;align-items:center;gap:12px;padding:7px 0;border-bottom:1px solid var(--line)}}
+.gname{{width:210px;font-size:.78rem;letter-spacing:.04em;color:var(--text)}}
+.gauge{{flex:1;display:flex;align-items:center;gap:12px}}.gbar{{flex:1;height:10px;background:#141c29;border:1px solid var(--line)}}.gbar div{{height:100%}}
+.gval{{width:34px;text-align:right;font-weight:700;font-size:.95rem}}.grk{{width:110px;color:var(--muted);font-size:.7rem}}.gdl{{width:90px;font-size:.7rem}}
+.dx{{font-size:.7rem;letter-spacing:.14em;font-weight:700;padding:4px 0;margin-bottom:4px;border-bottom:2px solid}}
+.dx.bad{{color:var(--down);border-color:var(--down)}}.dx.good{{color:var(--up);border-color:var(--up)}}
 </style>
 """
 

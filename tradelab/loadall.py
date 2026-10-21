@@ -70,25 +70,45 @@ def build_steps(tickers, tf="D", years=4, source="Авто", include_quotes=True
     return steps
 
 
-def run(steps, progress=None, workers=6):
-    """Выполняет шаги параллельно. progress(доля, подпись). Возвращает список (шаг, ok, сообщение, секунд) в порядке шагов."""
-    results = {}
+def run(steps, progress=None, workers=6, deadline=240.0):
+    """Выполняет шаги параллельно в быстром сетевом режиме. progress(доля, подпись). deadline: общий лимит в секундах, после него
+    незавершённые шаги помечаются как прерванные. Возвращает список (шаг, ok, сообщение, секунд) в порядке шагов."""
+    import queue
+    import threading
+    from . import net
 
-    def timed(label, fn):
-        t0 = time.time()
-        try:
-            msg = fn()
-            return label, True, str(msg or "ок"), time.time() - t0
-        except Exception as exc:
-            return label, False, str(exc)[:240], time.time() - t0
+    net.fast_mode(True)
+    q, results, done_q = queue.Queue(), {}, queue.Queue()
+    for st_ in steps:
+        q.put(st_)
 
-    with ThreadPoolExecutor(max_workers=workers) as ex:
-        futs = {ex.submit(timed, lab, fn): lab for lab, fn in steps}
-        done = 0
-        for f in as_completed(futs):
-            r = f.result()
+    def worker():
+        while True:
+            try:
+                label, fn = q.get_nowait()
+            except queue.Empty:
+                return
+            t0 = time.time()
+            try:
+                msg = fn()
+                done_q.put((label, True, str(msg or "ок"), time.time() - t0))
+            except Exception as exc:
+                done_q.put((label, False, str(exc)[:240], time.time() - t0))
+
+    for _ in range(min(workers, len(steps)) or 1):
+        threading.Thread(target=worker, daemon=True).start()
+    t_end = time.time() + deadline
+    try:
+        while len(results) < len(steps) and time.time() < t_end:
+            try:
+                r = done_q.get(timeout=0.5)
+            except queue.Empty:
+                continue
             results[r[0]] = r
-            done += 1
             if progress:
-                progress(done / len(steps), r[0])
+                progress(len(results) / len(steps), r[0])
+    finally:
+        net.fast_mode(False)
+    for label, _ in steps:
+        results.setdefault(label, (label, False, "не завершён за отведённое время (источник медленный или недоступен)", deadline))
     return [results[lab] for lab, _ in steps]
