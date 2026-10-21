@@ -22,9 +22,9 @@ html, body, [data-testid="stAppViewContainer"], .stApp {{background: var(--bg); 
 .block-container {{padding: 0.6rem 1.4rem 3rem; max-width: 1800px;}}
 * {{scrollbar-width: thin; scrollbar-color: var(--line2) transparent;}}
 h1, h2, h3, h4 {{font-family: var(--mono); letter-spacing: .02em; font-weight: 600; color: var(--text);}}
-h3 {{font-size: 1.02rem; text-transform: uppercase; letter-spacing: .09em; color: var(--amber);
+h3, [data-testid="stMarkdownContainer"] h3 {{font-size: .98rem !important; text-transform: uppercase; letter-spacing: .09em; color: var(--amber);
      border-bottom: 1px solid var(--line); padding-bottom: 6px; margin: 1.1rem 0 .7rem;}}
-h4 {{font-size: .86rem; text-transform: uppercase; letter-spacing: .08em; color: var(--muted);}}
+h4, [data-testid="stMarkdownContainer"] h4 {{font-size: .82rem !important; text-transform: uppercase; letter-spacing: .08em; color: var(--muted);}}
 p, li, label, span, div {{font-variant-numeric: tabular-nums;}}
 [data-testid="stCaptionContainer"], .stCaption, small {{color: var(--muted); font-size: .76rem; line-height: 1.45;}}
 
@@ -37,6 +37,7 @@ p, li, label, span, div {{font-variant-numeric: tabular-nums;}}
 .topbar .chip {{padding:7px 14px; font-size:.74rem; letter-spacing:.08em; color:var(--muted); border-left:1px solid var(--line); white-space:nowrap; text-transform:uppercase;}}
 .topbar .chip .dot {{display:inline-block; width:7px; height:7px; border-radius:50%; margin-right:7px; vertical-align:middle;}}
 .topbar .chip.live {{color: var(--up);}} .topbar .chip.live .dot {{background: var(--up); box-shadow: 0 0 6px var(--up);}}
+.topbar .chip.snap {{color: var(--amber);}} .topbar .chip.snap .dot {{background: var(--amber);}}
 .topbar .chip.demo {{color: {C['violet']};}} .topbar .chip.demo .dot {{background: {C['violet']};}}
 
 /* бегущая строка */
@@ -60,16 +61,15 @@ p, li, label, span, div {{font-variant-numeric: tabular-nums;}}
 .stTabs [data-baseweb="tab"]:hover {{color:var(--amber); background:var(--panel2);}}
 .stTabs [aria-selected="true"] {{background:var(--amber) !important; color:#0A0D12 !important;}}
 .stTabs [data-baseweb="tab-highlight"], .stTabs [data-baseweb="tab-border"] {{display:none;}}
-div[data-testid="stRadio"] > div[role="radiogroup"] {{gap:4px; flex-wrap:wrap;}}
-div[data-testid="stRadio"] [role="radiogroup"] > label {{background:var(--panel); border:1px solid var(--line); padding:4px 12px; margin:0; border-radius:0;
-    cursor:pointer; transition:all .12s;}}
-div[data-testid="stRadio"] [role="radiogroup"] > label:hover {{border-color:var(--amber-dim); background:var(--panel2);}}
-div[data-testid="stRadio"] [role="radiogroup"] > label > div:first-child {{display:none;}}
-div[data-testid="stRadio"] [role="radiogroup"] > label p {{font-size:.72rem; letter-spacing:.09em; text-transform:uppercase; color:var(--muted); font-weight:600;}}
-div[data-testid="stRadio"] [role="radiogroup"] > label:has(input:checked) {{background:var(--amber); border-color:var(--amber);}}
-div[data-testid="stRadio"] [role="radiogroup"] > label:has(input:checked) p {{color:#0A0D12;}}
-[data-testid="stSidebar"] div[data-testid="stRadio"] [role="radiogroup"] {{flex-direction:column;}}
-[data-testid="stSidebar"] div[data-testid="stRadio"] [role="radiogroup"] > label {{width:100%;}}
+[data-testid="stRadioGroup"] {{gap:4px !important; flex-wrap:wrap;}}
+label[data-testid="stRadioOption"] {{background:var(--panel); border:1px solid var(--line); padding:5px 12px; margin:0 !important; border-radius:0; cursor:pointer; transition:all .12s;}}
+label[data-testid="stRadioOption"]:hover {{border-color:var(--amber-dim); background:var(--panel2);}}
+label[data-testid="stRadioOption"] > div > div:first-child {{display:none !important;}}
+label[data-testid="stRadioOption"] p {{font-size:.72rem; letter-spacing:.09em; text-transform:uppercase; color:var(--muted); font-weight:600; margin:0;}}
+label[data-testid="stRadioOption"][data-selected="true"] {{background:var(--amber); border-color:var(--amber);}}
+label[data-testid="stRadioOption"][data-selected="true"] p {{color:#0A0D12;}}
+[data-testid="stSidebar"] [data-testid="stRadioGroup"] {{flex-direction:column; align-items:stretch;}}
+[data-testid="stSidebar"] label[data-testid="stRadioOption"] {{width:100%;}}
 
 /* кнопки */
 .stButton > button, .stDownloadButton > button, [data-testid^="stBaseButton"] {{border-radius:0; border:1px solid var(--line2); background:var(--panel);
@@ -108,13 +108,14 @@ def inject(st):
     st.markdown(CSS, unsafe_allow_html=True)
 
 
-def top_bar(mode, page, live, extra=""):
-    """Верхняя командная строка: бренд, путь (режим ▸ раздел), статус данных и время UTC."""
+def top_bar(mode, page, status="demo", status_text="", extra=""):
+    """Верхняя командная строка: бренд, путь (режим ▸ раздел), статус данных (live / snap / demo) и время UTC."""
     now = datetime.now(timezone.utc)
-    status = ("<span class='chip live'><span class='dot'></span>открытые данные · онлайн</span>" if live
-              else "<span class='chip demo'><span class='dot'></span>демо · синтетика</span>")
+    cls = {"live": "live", "snap": "snap", "demo": "demo"}.get(status, "demo")
+    text = status_text or {"live": "открытые данные · онлайн", "snap": "открытые данные · снимок", "demo": "демо · синтетика"}[cls]
+    chip = f"<span class='chip {cls}'><span class='dot'></span>{text}</span>"
     return (f"<div class='topbar'><div class='brand'>TRADE LAB</div><div class='crumb'>{mode} ▸ <b>{page}</b></div>"
-            f"<div class='spacer'></div>{extra}{status}<div class='chip'>{now:%d %b %Y · %H:%M} UTC</div></div>")
+            f"<div class='spacer'></div>{extra}{chip}<div class='chip'>{now:%d %b %Y · %H:%M} UTC</div></div>")
 
 
 def _last_two(path, date_col, val_col):

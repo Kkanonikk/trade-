@@ -95,7 +95,7 @@ def bump():
 
 
 if load_all_clicked:
-    steps = loadall.build_steps(tuple(tickers), tf, years, include_quotes=not GLOBAL or True)
+    steps = loadall.build_steps(tuple(tickers), tf, years, include_quotes=True)
     box = st.container()
     bar = box.progress(0.0, text="Загружаю все онлайн-данные…")
     res = loadall.run(steps, lambda f, label: bar.progress(min(f, 1.0), text=f"Готово: {label}"))
@@ -164,7 +164,8 @@ def stats_table(frames):
 
 
 # ---------------------------------------------------------------- шапка
-st.markdown(theme.top_bar("Портфель и рынки", "рабочее поле", live=not use_demo), unsafe_allow_html=True)
+st.markdown(theme.top_bar("Портфель и рынки", "рабочее поле", "demo" if use_demo else "live",
+                          "демо · синтетика" if use_demo else f"котировки из открытых API · {tf}"), unsafe_allow_html=True)
 
 ST = stats_table(frames)
 if len(ST):

@@ -1147,7 +1147,12 @@ def render(version, bump, use_demo=False):
     if st.session_state.get("wm_ask_msg"):
         st.caption("➜ " + st.session_state["wm_ask_msg"])
     page = st.radio("Раздел", PAGES, horizontal=True, label_visibility="collapsed", key="wm_page")
-    bar.markdown(theme.top_bar("Глобальный мир", page.lower(), live=not use_demo), unsafe_allow_html=True)
+    rep = st.session_state.get("load_all_report")
+    if rep is not None and bool(rep["ОК"].any()):
+        status, text = "live", f"онлайн · обновлено {st.session_state.get('load_all_time', '')}"
+    else:
+        status, text = "snap", f"встроенный снимок от {panel_mod.snapshot_info().get('global_updated') or panel_mod.snapshot_info().get('updated', '')}"
+    bar.markdown(theme.top_bar("Глобальный мир", page.lower(), status, text), unsafe_allow_html=True)
     if page == "ОБЗОР":
         page_overview(version)
     elif page == "ИССЛЕДОВАТЕЛЬ":

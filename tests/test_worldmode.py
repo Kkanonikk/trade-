@@ -252,3 +252,42 @@ def test_cockpit_factor_exposure_recovers_known_beta():
     assert est == pytest.approx(-0.16, abs=0.03) and lo < est < hi
     with pytest.raises(ValueError):
         cockpit.exposures(pr.head(10), F)
+
+
+# ---------------------------------------------------------------- «загрузить всё», тема
+def test_load_all_runs_steps_in_parallel_and_isolates_failures(monkeypatch, tmp_path):
+    from tradelab import config, loadall, openmarket, store
+    monkeypatch.setattr(config, "DB_PATH", tmp_path / "m.db")
+    good = pd.DataFrame({"ts": pd.date_range("2024-01-01", periods=5, tz="UTC"), "open": 1.0, "high": 2.0, "low": 0.5, "close": 1.5, "volume": 1.0})
+
+    def fake_load(ticker, start, tf, source):
+        if ticker == "BAD":
+            raise RuntimeError("источник недоступен")
+        return good, "Yahoo Finance"
+    monkeypatch.setattr(openmarket, "load", fake_load)
+    steps = [(f"Котировки {t}", loadall._quotes(t, "D", 2, "Авто")) for t in ["AAA", "BBB", "BAD", "CCC", "DDD", "EEE", "FFF", "GGG"]]
+    steps.append(("Падающий шаг", lambda: 1 / 0))
+    seen = []
+    res = loadall.run(steps, lambda f, label: seen.append(f))
+    ok = {r[0]: r[1] for r in res}
+    assert [r[0] for r in res] == [s[0] for s in steps]                         # порядок отчёта = порядок шагов
+    assert ok["Котировки BAD"] is False and ok["Падающий шаг"] is False and sum(ok.values()) == 7
+    assert seen and abs(max(seen) - 1.0) < 1e-9
+    con = store.connect()
+    assert {t for t in ("AAA", "BBB", "CCC", "DDD", "EEE", "FFF", "GGG") if len(store.load(con, t, "D")) == 5} == {"AAA", "BBB", "CCC", "DDD", "EEE", "FFF", "GGG"}
+
+
+def test_load_all_default_steps_cover_every_online_source():
+    from tradelab import loadall
+    labels = [lab for lab, _ in loadall.build_steps(["AAPL"], include_quotes=True)]
+    for key in ("Мировые рынки", "World Bank", "PortWatch", "UCDP", "Comtrade", "Котировки AAPL"):
+        assert any(key in lab for lab in labels), key
+
+
+def test_theme_top_bar_and_tape_have_no_broker_mentions():
+    from tradelab import theme
+    html = theme.top_bar("Глобальный мир", "обзор", "snap", "встроенный снимок")
+    assert "TRADE LAB" in html and "снимок" in html and "БКС" not in html
+    tape = theme.tape_snapshot()
+    assert "BRENT" in tape and "VIX" in tape and "S&amp;P" not in tape.replace("S&P", "")
+    assert "БКС" not in theme.CSS
