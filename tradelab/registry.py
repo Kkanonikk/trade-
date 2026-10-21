@@ -16,6 +16,9 @@ SOURCES = {
                  "url": "https://github.com/owid/co2-data", "license": "CC BY 4.0", "note": ""},
     "owid_energy": {"name": "OWID Energy", "org": "Our World in Data (на основе Energy Institute, Ember, EIA)",
                     "url": "https://github.com/owid/energy-data", "license": "CC BY 4.0", "note": ""},
+    "owid_hub": {"name": "Our World in Data: хаб наборов (owid-datasets)", "org": "Our World in Data и первоисточники каждого набора",
+                 "url": "https://github.com/owid/owid-datasets", "license": "CC BY 4.0 (у части наборов условия первоисточника)",
+                 "note": "Первоисточник каждого показателя указан под графиком; снимок только с 1960 года, значения округлены до 4 значащих цифр."},
     "imf_weo": {"name": "IMF World Economic Outlook", "org": "Международный валютный фонд", "url": "https://www.imf.org/en/Publications/WEO",
                 "license": "условия использования IMF (открытый доступ)", "note": "В снимке факты до 2013 г. (зеркало datahub.io), дальше проекции МВФ в обучение не берутся."},
     "worldbank": {"name": "World Bank Open Data (WDI)", "org": "Всемирный банк", "url": "https://data.worldbank.org", "license": "CC BY 4.0",
@@ -209,6 +212,14 @@ def key_gm(name):
     return f"gm:{name}"
 
 
+def hub_meta():
+    """Описание показателей хаба OWID (assets/snapshot/owid_hub_meta.json), если файл есть."""
+    import json
+    from pathlib import Path
+    path = Path(__file__).resolve().parent.parent / "assets" / "snapshot" / "owid_hub_meta.json"
+    return json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+
+
 def all_meta():
     """Плоский словарь: ключ показателя -> {label, unit, group, better, source}."""
     out = {}
@@ -219,6 +230,10 @@ def all_meta():
         out[f"co2:{n}"] = {"label": lab, "unit": unit, "group": grp, "better": better, "source": "owid_co2", "projection_from": None}
     for n, (lab, unit, grp, better) in OWID_ENERGY.items():
         out[f"en:{n}"] = {"label": lab, "unit": unit, "group": grp, "better": better, "source": "owid_energy", "projection_from": None}
+    for k, m in hub_meta().items():
+        out[k] = {"label": m["label"], "unit": "", "group": m["group"], "better": "none", "source": "owid_hub",
+                  "projection_from": 2025 if m["last"] >= 2025 else None, "dataset": m["dataset"],
+                  "source_name": m["source_name"], "source_link": m["source_link"], "description": m["description"]}
     return out
 
 

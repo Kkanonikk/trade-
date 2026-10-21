@@ -27,19 +27,19 @@ KEY_PROFILE = [
 
 
 # ================================================================ данные и вспомогательные
-@st.cache_data(show_spinner=False)
+@st.cache_resource(show_spinner=False)
 def get_wide(version):
     live = store.load_panel_long(store.connect_macro())
     extra = panel_mod.from_long(live) if len(live) else None
     return gdata.load(extra)
 
 
-@st.cache_data(show_spinner=False)
+@st.cache_resource(show_spinner=False)
 def get_avail(version):
     return gdata.available(get_wide(version))
 
 
-@st.cache_data(show_spinner=False)
+@st.cache_resource(show_spinner=False)
 def get_pop_path(version):
     return aging.population_path(get_wide(version))
 
@@ -58,6 +58,15 @@ def src_box(keys, note=""):
         d = registry.SOURCES.get(i)
         if d:
             lines.append(f"**{d['name']}**, {d['org']}: {d['url']} · лицензия: {d['license']}" + (f" · {d['note']}" if d["note"] else ""))
+    orig = []
+    for k in keys:
+        m = meta.get(k, {})
+        if m.get("source") == "owid_hub" and m.get("source_name"):
+            line = f"«{m['dataset']}»: {m['source_name']}" + (f" ({m['source_link']})" if m.get("source_link") else "")
+            if line not in orig:
+                orig.append(line)
+    if orig:
+        lines.append("первоисточник — " + "; ".join(orig[:4]) + (" и др." if len(orig) > 4 else ""))
     updated = panel_mod.snapshot_info().get("global_updated") or panel_mod.snapshot_info().get("updated", "н/д")
     st.caption("📎 Источник: " + " | ".join(lines) + f" · снимок от {updated}" + (f" · {note}" if note else ""))
 
@@ -1000,8 +1009,15 @@ def page_sources(version):
     st.dataframe(g.rename(columns={"group": "Группа", "Лет": "Последний год"}), hide_index=True, width="stretch")
     st.markdown("**Все показатели**")
     q = st.text_input("Поиск по названию")
-    t = avail if not q else avail[avail["label"].str.contains(q, case=False) | avail["key"].str.contains(q, case=False)]
-    st.dataframe(t, hide_index=True, width="stretch", height=420)
+    meta = gdata.meta()
+    t = avail.assign(Набор=[meta[k].get("dataset", "") for k in avail["key"]], Первоисточник=[meta[k].get("source_name", "") for k in avail["key"]],
+                     Ссылка=[meta[k].get("source_link", "") for k in avail["key"]])
+    if q:
+        t = t[t["label"].str.contains(q, case=False) | t["key"].str.contains(q, case=False) | t["Набор"].str.contains(q, case=False)
+              | t["Первоисточник"].str.contains(q, case=False)]
+    st.caption(f"Показателей в базе: {len(avail)}; из них из хаба Our World in Data: {int((avail['source'] == 'owid_hub').sum())}. "
+               "У показателей хаба указан первоисточник; названия показателей хаба на английском, как в источнике.")
+    st.dataframe(t, hide_index=True, width="stretch", height=420, column_config={"Ссылка": st.column_config.LinkColumn()})
     st.caption("Правила честности: прогнозы ООН помечены как прогнозы; статистические прогнозы приложения сопровождаются проверкой на истории; "
                "модели, у которых навыка нет, показываются с этой пометкой. Карты с индексами (уязвимость, риск кризиса) рассчитаны приложением.")
     st.markdown("### Свежесть и качество данных")
