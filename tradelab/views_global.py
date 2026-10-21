@@ -551,22 +551,8 @@ def view_sea(version, bump):
     if sc[0].button("Загрузить PortWatch (проливы)"):
         try:
             with st.spinner("Запрашиваю IMF PortWatch…"):
-                meta = maritime.fetch_chokepoint_meta()
-                daily = maritime.fetch_chokepoint_daily(365)
-            cols = maritime.type_columns(daily)
-            st.session_state["pw_cols"] = cols
-            frames = []
-            names = dict(zip(meta["portid"], meta["portname"]))
-            for c in cols:
-                f = daily[["portid", "date", c]].dropna()
-                f = pd.DataFrame({"ts": f["date"], "key": f["portid"].map(names).fillna(f["portid"]) + "|" + c, "value": f[c].astype(float)})
-                frames.append(f)
-            store.upsert_series(con, "choke", pd.concat(frames))
-            lat_lon = meta.set_index("portname")[["lat", "lon"]].to_dict("index")
-            store.upsert_series(con, "choke_pos", pd.DataFrame(
-                [{"ts": pd.Timestamp("2000-01-01", tz="UTC"), "key": f"{n}|lat", "value": float(v["lat"])} for n, v in lat_lon.items()] +
-                [{"ts": pd.Timestamp("2000-01-01", tz="UTC"), "key": f"{n}|lon", "value": float(v["lon"])} for n, v in lat_lon.items()]))
-            st.success(f"Загружено проливов: {meta.shape[0]}, строк трафика: {len(daily)}")
+                n_ports, n_rows = maritime.refresh_portwatch(con)
+            st.success(f"Загружено проливов: {n_ports}, строк трафика: {n_rows}")
             bump()
         except Exception as exc:
             st.error(f"PortWatch: {exc}")
@@ -603,18 +589,12 @@ def view_sea(version, bump):
         daily.columns = [k.split("|")[0] for k in daily.columns]
         rows = {}
         for name in daily.columns:
-            s = daily[name].dropna()
-            if len(s) >= 45:
-                a, b = s.tail(7).mean(), s.tail(90).mean()
-                rows[name] = {"recent": a, "baseline": b, "change": (a / b - 1) if b > 0 else 0.0, "spark": s.tail(60).tolist()}
-        # сопоставляем названия PortWatch с нашим справочником координат и берём координаты из PortWatch для остальных
-        by_pw = {}
-        for pw_name in rows:
-            ref = next((k for k in maritime.CHOKEPOINTS if k.lower().replace(" strait", "") in pw_name.lower() or pw_name.lower() in k.lower()), None)
-            by_pw[pw_name] = ref
+            st_ = maritime.choke_stats(daily[name])
+            if st_:
+                rows[name] = st_
         meta_rows = {}
         for pw_name, a in rows.items():
-            ref = by_pw[pw_name]
+            ref = maritime.match_chokepoint(pw_name)
             if ref:
                 lat, lon, ru = maritime.CHOKEPOINTS[ref]
             elif f"{pw_name}|lat" in pos.columns:
@@ -623,7 +603,9 @@ def view_sea(version, bump):
                 continue
             meta_rows[pw_name] = (lat, lon, ru)
         anomalies = rows
-        st.caption(f"Реальные данные PortWatch: проливов {len(rows)}, тип судов «{tanker_col}».")
+        last = max(a["last"] for a in rows.values()) if rows else None
+        st.caption(f"Реальные данные PortWatch: проливов {len(rows)}, тип судов «{tanker_col}», последняя дата в данных "
+                   f"{last:%d.%m.%Y}. Окна считаются по календарю (7 и 90 суток до этой даты)." if last is not None else "")
     else:
         st.info("Реальные данные по проливам не загружены: нажми «Загрузить PortWatch». Ниже на карте условная модель "
                 "(демо) и справочное положение проливов.")

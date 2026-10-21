@@ -2,9 +2,14 @@
 base = "dark"
 primaryColor = "#FF9F1A"
 backgroundColor = "#0A0D12"
-secondaryBackgroundColor = "#131923"
-textColor = "#E8ECF1"
+secondaryBackgroundColor = "#10151D"
+textColor = "#D7DEE8"
 font = "monospace"
+baseRadius = "none"
+borderColor = "#222C3B"
+
+[client]
+toolbarMode = "minimal"
 
 [browser]
 gatherUsageStats = false

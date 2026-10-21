@@ -13,7 +13,7 @@ import streamlit as st
 import json
 from pathlib import Path
 
-from . import aging, ask, brief, catalog, countries, crisis, forecast, gdata, globe, hunger, panel as panel_mod, quality, registry, store
+from . import aging, ask, brief, catalog, countries, crisis, forecast, gdata, globe, hunger, panel as panel_mod, quality, registry, store, theme
 from . import views_global
 from .ui import C, PALETTE, pct, style
 
@@ -1124,13 +1124,14 @@ def _ask_cb(version):
 
 
 def render(version, bump, use_demo=False):
-    st.markdown("<div class='title'>МИР · ГЛОБАЛЬНЫЙ РЕЖИМ</div>", unsafe_allow_html=True)
-    st.caption("История и прогнозы по странам на открытых данных. Под каждой картой и графиком указан источник.")
+    bar = st.empty()
+    st.markdown(theme.tape_snapshot(), unsafe_allow_html=True)
     st.text_input("Спросить: «где больше всего стариков», «риск голода в Нигерии», «кризис в Турции»", key="wm_ask", on_change=_ask_cb, args=(version,),
                   placeholder="Введи вопрос и нажми Enter")
     if st.session_state.get("wm_ask_msg"):
         st.caption("➜ " + st.session_state["wm_ask_msg"])
     page = st.radio("Раздел", PAGES, horizontal=True, label_visibility="collapsed", key="wm_page")
+    bar.markdown(theme.top_bar("Глобальный мир", page.lower(), live=not use_demo), unsafe_allow_html=True)
     if page == "ОБЗОР":
         page_overview(version)
     elif page == "ИССЛЕДОВАТЕЛЬ":

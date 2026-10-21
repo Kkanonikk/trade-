@@ -7,41 +7,34 @@ import plotly.graph_objects as go
 import streamlit as st
 from plotly.subplots import make_subplots
 
-from tradelab import (autotrade, backtest, compliance, config, demo, indicators, models, openmarket, optimize,
+from tradelab import (autotrade, backtest, compliance, config, demo, indicators, loadall, models, openmarket, optimize,
                       paper, risk, sources, store, strategies, views, views_global, views_worldmode, worlddata)
 from tradelab.openmarket import TIMEFRAMES
 from tradelab.ui import C, pct, style
 
-st.set_page_config(page_title="Trade Lab Terminal", layout="wide", page_icon="📈")
-st.markdown(f"""
-<style>
-.block-container {{padding-top: 3.5rem; max-width: 1700px;}}
-[data-testid="stMetricValue"] {{font-size: 1.45rem;}}
-[data-testid="stMetric"] {{background: {C['panel']}; border-left: 3px solid {C['accent']};
-    padding: 10px 14px; border-radius: 4px;}}
-[data-testid="stMetricLabel"] {{color: #8B96A5;}}
-.tape {{overflow: hidden; white-space: nowrap; background: {C['panel']}; border-bottom: 2px solid {C['accent']};
-    padding: 7px 0; margin-bottom: 10px; font-size: 14px;}}
-.tape-inner {{display: inline-block; animation: scroll 80s linear infinite;}}
-.tape-inner span.item {{margin: 0 22px;}}
-@keyframes scroll {{from {{transform: translateX(0);}} to {{transform: translateX(-50%);}}}}
-.badge {{display:inline-block; padding:2px 10px; border-radius:3px; font-size:12px; font-weight:bold;}}
-.title {{font-size: 26px; font-weight: bold; letter-spacing: 2px; color: {C['accent']};}}
-.stTabs [data-baseweb="tab"] {{font-weight: bold; letter-spacing: 1px;}}
-</style>""", unsafe_allow_html=True)
+st.set_page_config(page_title="Trade Lab Terminal", layout="wide", page_icon="◼", initial_sidebar_state="expanded")
+theme.inject(st)
 
 
 # ---------------------------------------------------------------- боковая панель
 with st.sidebar:
-    st.markdown(f"<div class='title'>TRADE LAB</div>", unsafe_allow_html=True)
+    st.markdown("<div class='side-title'>TRADE LAB</div><div class='side-sub'>открытые данные · аналитика · риск</div>", unsafe_allow_html=True)
     app_mode = st.radio("Режим", ["🌍 Глобальный мир", "📈 Портфель и рынки"], key="app_mode",
                         help="Глобальный мир: страны, демография, голод, кризисы, климат, торговля, прогнозы и история.")
     GLOBAL = app_mode.startswith("🌍")
+    st.markdown("<div class='side-sec'>данные</div>", unsafe_allow_html=True)
+    load_all_clicked = st.button("⟳ Загрузить все онлайн-данные", type="primary", width="stretch",
+                                 help="Рынки, макро World Bank и IMF, проливы и танкеры, конфликты, торговля, котировки бумаг: одним нажатием, шаги идут параллельно, "
+                                      "сбой одного источника не мешает остальным. Нужен интернет, ключи не нужны. Отдельные кнопки на страницах остались.")
+    if st.session_state.get("load_all_report") is not None:
+        rep = st.session_state["load_all_report"]
+        st.caption(f"Последняя загрузка: {st.session_state.get('load_all_time', '')} · успешно {int(rep['ОК'].sum())} из {len(rep)}")
+    st.markdown("<div class='side-sec'>параметры</div>", unsafe_allow_html=True)
     try:
         has_data = bool(store.summary(store.connect()).shape[0])
     except Exception:
         has_data = False
-    use_demo = st.toggle("Демо-режим (синтетические данные)", value=not has_data,
+    use_demo = st.toggle("Демо-режим (синтетика)", value=not has_data,
                          help="Случайные котировки для знакомства с интерфейсом. Не реальный рынок. В глобальном режиме влияет "
                               "только на демо-потоки судов и конфликтов.")
     tf, tickers, years, cost_bps, allow_short, port_src = "D", list(config.DEFAULT_TICKERS), 4, 5.0, False, "Равные веса"
@@ -101,6 +94,25 @@ def bump():
     st.rerun()
 
 
+if load_all_clicked:
+    steps = loadall.build_steps(tuple(tickers), tf, years, include_quotes=not GLOBAL or True)
+    box = st.container()
+    bar = box.progress(0.0, text="Загружаю все онлайн-данные…")
+    res = loadall.run(steps, lambda f, label: bar.progress(min(f, 1.0), text=f"Готово: {label}"))
+    bar.empty()
+    st.session_state["load_all_report"] = pd.DataFrame(res, columns=["Шаг", "ОК", "Сообщение", "Секунд"])
+    st.session_state["load_all_time"] = f"{datetime.now():%d.%m %H:%M}"
+    st.session_state.version += 1
+    VERSION = st.session_state.version
+
+if st.session_state.get("load_all_report") is not None:
+    rep = st.session_state["load_all_report"]
+    with st.expander(f"Отчёт загрузки онлайн-данных: успешно {int(rep['ОК'].sum())} из {len(rep)} ({st.session_state.get('load_all_time', '')})",
+                     expanded=bool(load_all_clicked)):
+        st.dataframe(rep, hide_index=True, width="stretch", column_config={
+            "ОК": st.column_config.CheckboxColumn(), "Секунд": st.column_config.NumberColumn(format="%.1f")})
+        st.caption("Шаги с ошибкой обычно значат, что источник недоступен из твоей сети или изменил формат: остальные данные при этом загружены.")
+
 if GLOBAL:
     views_worldmode.render(VERSION, bump, use_demo)
     st.stop()
@@ -152,16 +164,12 @@ def stats_table(frames):
 
 
 # ---------------------------------------------------------------- шапка
-badge = (f"<span class='badge' style='background:{C['violet']};color:#000'>DEMO · СИНТЕТИКА</span>"
-         if use_demo else f"<span class='badge' style='background:{C['up']};color:#000'>БКС · РЕАЛЬНЫЕ ДАННЫЕ</span>")
-st.markdown(f"<span class='title'>TRADE LAB TERMINAL</span> &nbsp; {badge} &nbsp; "
-            f"<span style='color:#8B96A5'>таймфрейм {tf} · бумаг в базе: {len(frames)} · "
-            f"{datetime.now():%d.%m.%Y %H:%M}</span>", unsafe_allow_html=True)
+st.markdown(theme.top_bar("Портфель и рынки", "рабочее поле", live=not use_demo), unsafe_allow_html=True)
 
 ST = stats_table(frames)
 if len(ST):
     items = "".join(
-        f"<span class='item'><span style='color:#8B96A5'>{r['Тикер']}</span> <b>{r['Цена']:.2f}</b> "
+        f"<span class='item'><span class='k'>{r['Тикер']}</span><b>{r['Цена']:.2f}</b> "
         f"<span style='color:{C['up'] if r['1д %'] >= 0 else C['down']}'>"
         f"{'▲' if r['1д %'] >= 0 else '▼'}{abs(r['1д %']):.2f}%</span></span>" for _, r in ST.iterrows())
     st.markdown(f"<div class='tape'><div class='tape-inner'>{items}{items}</div></div>", unsafe_allow_html=True)
