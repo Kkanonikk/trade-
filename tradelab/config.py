@@ -45,3 +45,19 @@ def get(name, default=""):
 
 def sector(ticker):
     return UNIVERSE.get(ticker, ("", "Прочее"))[1]
+
+
+# Страна риска и класс актива для разложения портфеля по странам (look-through). ETF на корзину стран: веса стран приблизительные.
+COUNTRY_OF_RISK = {
+    "AAPL": "USA", "MSFT": "USA", "NVDA": "USA", "GOOGL": "USA", "AMZN": "USA", "META": "USA", "TSLA": "USA", "AVGO": "USA",
+    "TSM": "TWN", "ASML": "NLD", "SAP": "DEU", "JPM": "USA", "V": "USA", "BRK-B": "USA", "HSBC": "GBR", "XOM": "USA", "CVX": "USA",
+    "SHEL": "GBR", "JNJ": "USA", "LLY": "USA", "NVO": "DNK", "WMT": "USA", "KO": "USA", "NSRGY": "CHE", "TM": "JPN",
+    "BHP": "AUS", "RIO": "GBR", "BABA": "CHN", "SPY": "USA", "QQQ": "USA", "TLT": "USA",
+}
+BASKETS = {"EEM": {"CHN": 0.30, "IND": 0.18, "TWN": 0.17, "KOR": 0.11, "BRA": 0.05, "SAU": 0.04, "ZAF": 0.03, "MEX": 0.02, "IDN": 0.02, "THA": 0.02, "OTHER": 0.06}}
+ASSET_CLASS = {"SPY": "Фонды акций", "QQQ": "Фонды акций", "EEM": "Фонды акций", "GLD": "Сырьё", "TLT": "Облигации",
+               "BTC-USD": "Крипта", "ETH-USD": "Крипта"}
+
+
+def asset_class(ticker):
+    return ASSET_CLASS.get(ticker, "Акции")

@@ -8,7 +8,7 @@ import streamlit as st
 from plotly.subplots import make_subplots
 
 from tradelab import (autotrade, backtest, compliance, config, demo, indicators, loadall, models, openmarket, optimize,
-                      paper, risk, sources, store, strategies, views, views_global, views_worldmode, worlddata)
+                      paper, risk, sources, store, strategies, theme, views, views_cockpit, views_global, views_worldmode, worlddata)
 from tradelab.openmarket import TIMEFRAMES
 from tradelab.ui import C, pct, style
 
@@ -177,10 +177,10 @@ if len(ST):
 R_all = risk.returns_frame(frames) if len(frames) >= 2 else None
 weights, weights_fallback = (pick_weights(list(R_all.columns)) if R_all is not None else ({}, False))
 
-tabs = st.tabs(["ОБЗОР", "МИР", "МОРЕ", "КОНФЛИКТЫ", "ГОРИЗОНТ", "КРИЗИСЫ", "ВАЛЮТЫ", "ТОРГОВЛЯ", "СТРУКТУРА", "МАКРО",
+tabs = st.tabs(["КОКПИТ", "ОБЗОР", "МИР", "МОРЕ", "КОНФЛИКТЫ", "ГОРИЗОНТ", "КРИЗИСЫ", "ВАЛЮТЫ", "ТОРГОВЛЯ", "СТРУКТУРА", "МАКРО",
                 "ОТЧЁТНОСТЬ", "ГРАФИК", "РИСК", "ФАКТОРЫ", "ОПТИМИЗАТОР", "СТРАТЕГИИ", "МОДЕЛИ", "СКАНЕР", "АВТОТОРГОВЛЯ",
                 "ДАННЫЕ", "ИСТОЧНИКИ"])
-(tab_ov, tab_world, tab_sea, tab_conf, tab_horizon, tab_crisis, tab_fx, tab_trade, tab_struct, tab_macro, tab_fund,
+(tab_cockpit, tab_ov, tab_world, tab_sea, tab_conf, tab_horizon, tab_crisis, tab_fx, tab_trade, tab_struct, tab_macro, tab_fund,
  tab_chart, tab_risk, tab_factors, tab_opt, tab_strat, tab_models, tab_scan, tab_auto, tab_data, tab_sources) = tabs
 limits_ss = st.session_state.setdefault("limits", compliance.Limits())
 
@@ -220,6 +220,10 @@ with tab_ov:
                     "RSI": st.column_config.ProgressColumn(format="%.0f", min_value=0, max_value=100),
                     "Тренд 60": st.column_config.LineChartColumn("Тренд 60 баров"),
                 })
+
+# ---------------------------------------------------------------- КОКПИТ
+with tab_cockpit:
+    views_cockpit.view_cockpit(frames, weights, weights_fallback, broker.equity(last_prices), world, VERSION, limits_ss, use_demo)
 
 # ---------------------------------------------------------------- МИР, СТРУКТУРА, МАКРО, ОТЧЁТНОСТЬ
 with tab_world:

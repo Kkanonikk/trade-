@@ -198,3 +198,57 @@ def test_aging_robustness_returns_specs_and_permutation(w):
     rb = aging.robustness(w, "growth")
     assert len(rb) >= 5 and rb["p"].notna().sum() == 1
     assert rb["SE"].dropna().gt(0).all()
+
+
+# ---------------------------------------------------------------- хаб открытых данных и кокпит
+def test_hub_name_mapping_and_parse_thresholds():
+    from tradelab import hub
+    co2 = pd.read_csv(panel.SNAP / "owid_co2.csv.gz", usecols=["country", "iso_code"])
+    ids = hub.name_map(co2)
+    assert ids["united states"] == "USA" and ids["russia"] == "RUS" and ids["korea, rep."] == "KOR"
+    ents = list(ids)[:80]
+    df = pd.DataFrame({"Entity": ents * 10, "Year": np.repeat(np.arange(2001, 2011), len(ents)), "Index": np.random.default_rng(0).normal(size=len(ents) * 10)})
+    long, info = hub.parse_dataset(df, "x", ids)
+    assert long is not None and info[0][1] >= hub.MIN_COUNTRIES
+    few = df[df["Entity"].isin(ents[:5])]
+    assert hub.parse_dataset(few, "x", ids)[0] is None            # мало стран
+    assert hub.classify("Democracy - Polity 5") == "Безопасность и институты" and hub.classify("Daily supply of calories") == "Питание и голод"
+
+
+def test_hub_snapshot_is_loaded_with_sources(w):
+    from tradelab import registry
+    meta = gdata.meta()
+    hubk = [k for k in w.columns if k.startswith("hub:")]
+    assert len(hubk) > 300
+    for k in hubk[:50]:
+        m = meta[k]
+        assert m["source"] == "owid_hub" and m["source_name"] and m["dataset"]
+        assert registry.SOURCES["owid_hub"]["license"]
+    assert (w[hubk].dropna(how="all").index.get_level_values("year") >= 1960).all()
+
+
+def test_cockpit_look_through_and_overlay():
+    from tradelab import cockpit
+    e = cockpit.look_through({"AAPL": 0.3, "EEM": 0.2, "GLD": 0.1, "BTC-USD": 0.1, "ZZZZ": 0.1, "SBER.MOEX": 0.2})
+    assert abs(e.sum() - 1.0) < 1e-9 and e["USA"] == pytest.approx(0.3) and e["CHN"] == pytest.approx(0.06) and e["RUS"] == pytest.approx(0.2)
+    assert e["Без страны"] == pytest.approx(0.2) and e["н/д"] == pytest.approx(0.1)
+    vals = pd.Series({"USA": 10.0, "CHN": 30.0})
+    avg, cover, tbl = cockpit.weighted_overlay(e, vals)
+    assert avg == pytest.approx((0.3 * 10 + 0.06 * 30) / 0.36) and 0 < cover < 1 and tbl.index[0] == "USA"
+
+
+def test_cockpit_factor_exposure_recovers_known_beta():
+    from tradelab import cockpit
+    rng = np.random.default_rng(3)
+    idx = pd.date_range("2018-01-07", periods=300, freq="W-SUN")          # недели, как их строит resample("W")
+    F = pd.DataFrame({"Акции мира (S&P 500)": rng.normal(0, 0.02, 300), "Нефть Brent": rng.normal(0, 0.04, 300)}, index=idx)
+    y = 0.8 * F["Акции мира (S&P 500)"] + 0.1 * F["Нефть Brent"] + rng.normal(0, 0.005, 300)
+    weekly_level = pd.Series((1 + y).cumprod().to_numpy(), index=idx)
+    daily = weekly_level.reindex(pd.date_range(idx[0], idx[-1], freq="D")).ffill()
+    pr = daily.pct_change().dropna()                                      # дневной ряд, из которого недельная доходность восстанавливается в y
+    exp = cockpit.exposures(pr, F)
+    assert abs(exp.loc["Акции мира (S&P 500)", "beta"] - 0.8) < 0.1 and exp.loc["Акции мира (S&P 500)", "t"] > 10
+    est, lo, hi = cockpit.scenario_pnl(exp, {"Акции мира (S&P 500)": -0.2})
+    assert est == pytest.approx(-0.16, abs=0.03) and lo < est < hi
+    with pytest.raises(ValueError):
+        cockpit.exposures(pr.head(10), F)
