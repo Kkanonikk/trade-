@@ -671,7 +671,7 @@ def view_conflicts(version, bump, use_demo):
     con = store.connect_events()
     stored = store.load_ged(con)
     has_real = len(stored) > 0
-    with st.expander("Загрузить события UCDP GED (реальные, без ключа)", expanded=not has_real):
+    with st.expander("Загрузить события UCDP GED (реальные, без ключа)", expanded=False):
         st.caption("Файл с сайта Uppsala Conflict Data Program (события с гибелью людей, 1989+, с координатами). Если сайт недоступен "
                    "из сети, скачай ZIP вручную и загрузи ниже; для API нужен бесплатный токен.")
         c1, c2 = st.columns(2)
@@ -714,7 +714,8 @@ def view_conflicts(version, bump, use_demo):
     else:
         ged = conflicts.demo_events()
         src = "ДЕМО (синтетика вокруг известных очагов, НЕ реальные события)"
-        st.warning("Показаны синтетические события вокруг известных очагов: чтобы увидеть реальные, загрузи UCDP GED выше.")
+        if st.session_state.get("set_demo_warn", True):
+            st.warning("Показаны синтетические события вокруг известных очагов: реальные загружаются кнопкой «Загрузить все онлайн-данные» слева или в блоке выше.")
     years = sorted(int(y) for y in ged["year"].dropna().unique())
     c1, c2, c3 = st.columns([3, 2, 3])
     yr = c1.select_slider("Период", options=years, value=(years[max(0, len(years) - 3)], years[-1]))
